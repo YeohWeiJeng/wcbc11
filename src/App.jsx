@@ -1061,6 +1061,66 @@ const App = () => {
     return () => clearInterval(interval);
   }, [addLog]);
 
+  // --- Screen Capture Handlers ---
+
+  const startScreenShare = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ 
+        video: { cursor: "always" }, 
+        audio: false 
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setIsScreenShared(true);
+      }
+      
+      stream.getVideoTracks()[0].onended = () => {
+        setIsScreenShared(false);
+        setAutoTrackEnabled(false);
+      };
+    } catch (err) {
+      console.error("Error sharing screen:", err);
+    }
+  };
+
+  const handleVideoClick = (e) => {
+    if (!videoRef.current) return;
+    
+    const rect = e.target.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    
+    setTargetPixel({ x, y });
+  };
+
+  const capturePattern = (type) => {
+     if (!videoRef.current || !canvasRef.current || !targetPixel) return;
+     
+     const canvas = canvasRef.current;
+     const ctx = canvas.getContext('2d', { willReadFrequently: true });
+     
+     const centerX = Math.floor(targetPixel.x * canvas.width);
+     const centerY = Math.floor(targetPixel.y * canvas.height);
+     const startX = Math.max(0, centerX - Math.floor(scanSize / 2));
+     const startY = Math.max(0, centerY - Math.floor(scanSize / 2));
+     const w = Math.min(scanSize, canvas.width - startX);
+     const h = Math.min(scanSize, canvas.height - startY);
+
+     // Copy data to a Float32Array or standard array isn't needed, Uint8ClampedArray is fine
+     const imageData = ctx.getImageData(startX, startY, w, h).data;
+     
+     // We must clone it because ImageData.data is a view on the canvas buffer which changes
+     const dataClone = new Uint8ClampedArray(imageData);
+
+     if (type === 'us') {
+         usPatternRef.current = dataClone;
+         setHasUsPattern(true);
+     } else {
+         enemyPatternRef.current = dataClone;
+         setHasEnemyPattern(true);
+     }
+  };
+
   // ... (Rest of UI) ...
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 flex flex-col items-center">
