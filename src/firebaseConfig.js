@@ -5,12 +5,12 @@ import { getAuth, signInAnonymously } from 'firebase/auth';
 // 1. Setup Configuration using Vite Environment Variables
 // Vercel will inject these during the build process.
 const firebaseConfig = {
-  apiKey: "AIzaSyA6_RecGuSElCvuaO8PhL1Xs1rNqrJWP08",
-  authDomain: "svs-8d5c6.firebaseapp.com",
-  projectId: "svs-8d5c6",
-  storageBucket: "svs-8d5c6.firebasestorage.app",
-  messagingSenderId: "180665612598",
-  appId: "1:180665612598:web:be20e6e85f6423d3605b97"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 // 2. Initialize App
