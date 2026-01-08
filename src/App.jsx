@@ -93,40 +93,32 @@ const getEffectiveMarchTime = (inputTime, isPetActive) => {
   const t = parseInt(inputTime) || 0;
   if (!isPetActive) return t;
 
-  // If the time matches one of our known spots, use the hardcoded value
   if (MARCH_TIME_MAPPING[t]) {
     return MARCH_TIME_MAPPING[t];
   }
 
   // Fallback for manual/custom inputs: default formula
-  // Input Time is 125% speed. Active is 155% speed.
   return Math.floor(t * (1.25 / 1.55));
 };
 
-// Helper to check if a calculation is custom (formula based)
 const isCustomCalculation = (inputTime) => {
     const t = parseInt(inputTime) || 0;
     return !MARCH_TIME_MAPPING[t];
 };
 
-// Function to compare two image data arrays (pixel by pixel)
 const calculatePatternDiff = (data1, data2) => {
-  if (!data1 || !data2 || data1.length !== data2.length) return 255; // Max diff if mismatch
+  if (!data1 || !data2 || data1.length !== data2.length) return 255; 
 
   let totalDiff = 0;
-  // Step by 4 (R, G, B, A)
   for (let i = 0; i < data1.length; i += 4) {
-    // Simple sum of absolute differences for R, G, B
     const rDiff = Math.abs(data1[i] - data2[i]);
     const gDiff = Math.abs(data1[i+1] - data2[i+1]);
     const bDiff = Math.abs(data1[i+2] - data2[i+2]);
-    
     totalDiff += (rDiff + gDiff + bDiff);
   }
   
-  // Normalize per pixel (3 channels)
   const pixelCount = data1.length / 4;
-  return totalDiff / (pixelCount * 3); // Average difference per channel per pixel (0-255)
+  return totalDiff / (pixelCount * 3);
 };
 
 
@@ -134,7 +126,6 @@ const calculatePatternDiff = (data1, data2) => {
 const VisualTimeline = ({ logs }) => {
   if (!logs || logs.length === 0) return null;
 
-  // Sort logs by time (id is timestamp)
   const sortedLogs = [...logs].sort((a, b) => a.id - b.id);
   const startTime = sortedLogs[0].id;
   const endTime = sortedLogs[sortedLogs.length - 1].id;
@@ -142,12 +133,10 @@ const VisualTimeline = ({ logs }) => {
 
   if (totalDuration === 0) return <div className="text-center text-xs text-slate-500 p-4">Not enough data for timeline visualization</div>;
 
-  // 1. Build Occupation Segments
   const segments = [];
   let currentOwner = 'neutral';
   let segmentStart = startTime;
 
-  // Helper to parse owner from log message
   const getOwnerFromLog = (msg) => {
     if (msg.includes('OURS')) return 'us';
     if (msg.includes('ENEMY')) return 'enemy';
@@ -156,20 +145,17 @@ const VisualTimeline = ({ logs }) => {
 
   sortedLogs.forEach((log) => {
     if (log.type === 'occupation') {
-      // End previous segment
       segments.push({
         owner: currentOwner,
         start: segmentStart,
         end: log.id,
         width: ((log.id - segmentStart) / totalDuration) * 100
       });
-      // Start new segment
       currentOwner = getOwnerFromLog(log.message);
       segmentStart = log.id;
     }
   });
 
-  // Push final segment
   segments.push({
     owner: currentOwner,
     start: segmentStart,
@@ -177,35 +163,26 @@ const VisualTimeline = ({ logs }) => {
     width: ((endTime - segmentStart) / totalDuration) * 100
   });
 
-  // 2. Filter Point Events (Pets AND Victory)
-  const pointEventsRaw = sortedLogs.filter(l => ['pet', 'victory'].includes(l.type)).map(log => ({
+  const petEventsRaw = sortedLogs.filter(l => ['pet', 'victory'].includes(l.type)).map(log => ({
     ...log,
     left: ((log.id - startTime) / totalDuration) * 100
   }));
 
-  // Assign stack levels (slots) to events to prevent visual overlap
   const pointEvents = [];
-  pointEventsRaw.forEach((ev) => {
-      // Find a slot that doesn't conflict with recent events
+  petEventsRaw.forEach((ev) => {
       let slot = 0;
-      const threshold = 5; // % width threshold for overlap
+      const threshold = 5; 
       
       while (true) {
-          // Check if any existing event in this slot is too close
           const collision = pointEvents.some(prev => 
              prev.slot === slot && Math.abs(prev.left - ev.left) < threshold
           );
-          
-          if (!collision) {
-              break;
-          }
+          if (!collision) break;
           slot++;
       }
       pointEvents.push({ ...ev, slot });
   });
 
-
-  // Helper for UTC formatting in timeline
   const formatTimeUTC = (timestamp) => {
     return new Date(timestamp).toLocaleTimeString('en-US', { 
         timeZone: 'UTC', 
@@ -222,10 +199,7 @@ const VisualTimeline = ({ logs }) => {
          <Clock size={12}/> Battle Visualization
       </h4>
       
-      {/* Timeline Container - Increased Height for Stacking */}
       <div className="relative w-full h-64 mt-4">
-        
-        {/* Occupation Bar (Background) - Positioned at bottom */}
         <div className="absolute bottom-8 left-0 right-0 h-4 bg-slate-800 rounded-full overflow-hidden flex border border-slate-600/50 z-0">
           {segments.map((seg, i) => (
             <div 
@@ -240,14 +214,12 @@ const VisualTimeline = ({ logs }) => {
           ))}
         </div>
 
-        {/* Markers (Overlay) - Stacking upwards from the bar */}
         {pointEvents.map((ev, i) => {
-          // Determine color based on side and type
           const isUs = ev.side === 'us';
           const isEnemy = ev.side === 'enemy';
           const isVictory = ev.type === 'victory';
           
-          let markerColorClass = 'text-yellow-500 border-yellow-500'; // Fallback
+          let markerColorClass = 'text-yellow-500 border-yellow-500';
           let lineColorClass = 'bg-yellow-500/50';
           let Icon = Zap;
           let iconSize = 8;
@@ -265,7 +237,6 @@ const VisualTimeline = ({ logs }) => {
             lineColorClass = 'bg-orange-500/50';
           }
 
-          // Calculate vertical position based on slot
           const bottomPos = 48 + (ev.slot * 24); 
           const lineHeight = bottomPos - 32;
 
@@ -275,55 +246,32 @@ const VisualTimeline = ({ logs }) => {
               className="absolute transform -translate-x-1/2 flex flex-col items-center group z-10 hover:z-50"
               style={{ left: `${ev.left}%`, bottom: `${bottomPos}px` }}
             >
-              {/* Hover Tooltip */}
               <div className="opacity-0 group-hover:opacity-100 absolute bottom-full mb-1 bg-black/90 border border-slate-600 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap pointer-events-none transition-opacity shadow-xl z-50">
                  <span className={`font-bold block mb-0.5 ${isVictory ? 'text-yellow-300' : isUs ? 'text-cyan-400' : isEnemy ? 'text-orange-500' : 'text-yellow-400'}`}>
                     {isVictory ? 'BATTLE OUTCOME' : formatTimeUTC(ev.id) + ' (UTC)'}
                  </span>
                  {ev.message}
               </div>
-              
-              {/* Icon */}
               <div className={`w-5 h-5 rounded-full border flex items-center justify-center shadow-sm cursor-help hover:scale-125 transition-transform z-20 ${markerColorClass}`}>
                  <Icon size={iconSize} />
               </div>
-
-               {/* Connector Line to Bar */}
-               <div 
-                 className={`w-0.5 absolute top-full left-1/2 -translate-x-1/2 z-0 ${lineColorClass}`}
-                 style={{ height: `${lineHeight}px` }}
-               ></div>
+               <div className={`w-0.5 absolute top-full left-1/2 -translate-x-1/2 z-0 ${lineColorClass}`} style={{ height: `${lineHeight}px` }}></div>
             </div>
           );
         })}
         
-        {/* Start/End Labels */}
-        <div className="absolute bottom-0 left-0 text-[10px] text-slate-500 -translate-x-2 font-mono">
-           {formatTimeUTC(startTime)}
-        </div>
-        <div className="absolute bottom-0 right-0 text-[10px] text-slate-500 translate-x-2 font-mono">
-           {formatTimeUTC(endTime)}
-        </div>
-
+        <div className="absolute bottom-0 left-0 text-[10px] text-slate-500 -translate-x-2 font-mono">{formatTimeUTC(startTime)}</div>
+        <div className="absolute bottom-0 right-0 text-[10px] text-slate-500 translate-x-2 font-mono">{formatTimeUTC(endTime)}</div>
       </div>
       
-      {/* Legend */}
       <div className="flex flex-wrap gap-4 mt-2 justify-center text-[10px] text-slate-400 bg-black/20 p-2 rounded border border-white/5">
          <div className="flex items-center gap-1.5"><div className="w-2 h-2 bg-blue-600 rounded-full ring-1 ring-white/10"></div> Us Occ.</div>
          <div className="flex items-center gap-1.5"><div className="w-2 h-2 bg-red-600 rounded-full ring-1 ring-white/10"></div> Enemy Occ.</div>
          <div className="flex items-center gap-1.5"><div className="w-2 h-2 bg-slate-700 rounded-full ring-1 ring-white/10"></div> Neutral</div>
-         
-         {/* Pet Legend */}
          <div className="flex items-center gap-3 border-l border-slate-700 pl-3 ml-1">
-             <div className="flex items-center gap-1.5">
-                <Zap size={10} className="text-cyan-400"/> Us Pet
-             </div>
-             <div className="flex items-center gap-1.5">
-                <Zap size={10} className="text-orange-500"/> Enemy Pet
-             </div>
-             <div className="flex items-center gap-1.5">
-                <Trophy size={10} className="text-yellow-400"/> Victory/Defeat
-             </div>
+             <div className="flex items-center gap-1.5"><Zap size={10} className="text-cyan-400"/> Us Pet</div>
+             <div className="flex items-center gap-1.5"><Zap size={10} className="text-orange-500"/> Enemy Pet</div>
+             <div className="flex items-center gap-1.5"><Trophy size={10} className="text-yellow-400"/> Victory/Defeat</div>
          </div>
       </div>
     </div>
@@ -340,11 +288,9 @@ const TimeInput = ({ label, value, onChange, colorClass, readOnly = false }) => 
   const handleChange = (field, val) => {
     if (readOnly) return; 
     let newValue = parseInt(val) || 0;
-    // Basic clamping
     if (newValue < 0) newValue = 0;
     if (field === 'h' && newValue > 5) newValue = 5;
     if ((field === 'm' || field === 's') && newValue > 59) newValue = 59;
-
     onChange({ ...value, [field]: newValue });
   };
 
@@ -355,16 +301,10 @@ const TimeInput = ({ label, value, onChange, colorClass, readOnly = false }) => 
     const adjust = () => {
       const currentSec = toSeconds(valueRef.current);
       const newSec = currentSec + delta;
-      if (newSec >= 0) {
-        onChange(fromSeconds(newSec));
-      }
+      if (newSec >= 0) onChange(fromSeconds(newSec));
     };
-    // Immediate execution
     adjust();
-    // Rapid fire after hold
-    timeoutRef.current = setTimeout(() => {
-      intervalRef.current = setInterval(adjust, 100); 
-    }, 500); 
+    timeoutRef.current = setTimeout(() => { intervalRef.current = setInterval(adjust, 100); }, 500); 
   };
 
   const stopAdjust = () => {
@@ -372,84 +312,31 @@ const TimeInput = ({ label, value, onChange, colorClass, readOnly = false }) => 
     if (intervalRef.current) clearInterval(intervalRef.current);
   };
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => stopAdjust();
-  }, []);
+  useEffect(() => { return () => stopAdjust(); }, []);
 
   return (
     <div className={`relative p-4 rounded-xl border border-opacity-20 bg-opacity-10 ${colorClass} flex flex-col gap-2 transition-all ${readOnly ? 'opacity-90' : ''}`}>
-      
-      {/* Overlay to block direct typing in Live Mode, but sit behind the adjustment buttons */}
       {readOnly && <div className="absolute inset-0 bg-transparent z-10 cursor-not-allowed" title="Direct typing disabled. Use +/- buttons." />}
-
-      {/* Header with Label and Adjustment Buttons (z-20 to sit above overlay) */}
       <div className="flex justify-between items-center relative z-20">
-        <label className="text-sm font-bold uppercase tracking-wider opacity-90 flex items-center gap-2">
-          {label}
-        </label>
-        
-        {/* Adjustment Controls */}
+        <label className="text-sm font-bold uppercase tracking-wider opacity-90 flex items-center gap-2">{label}</label>
         <div className="flex items-center gap-1">
-          <button 
-             onMouseDown={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(-1); }}
-             onMouseUp={stopAdjust}
-             onMouseLeave={stopAdjust}
-             onTouchStart={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(-1); }}
-             onTouchEnd={stopAdjust}
-             className="p-1.5 rounded bg-slate-900/50 hover:bg-slate-900 text-white/70 hover:text-white border border-white/10 transition-colors select-none"
-             title="Subtract 1 Second (Hold to repeat)"
-          >
-             <Minus size={14} />
-          </button>
-          <button 
-             onMouseDown={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(1); }}
-             onMouseUp={stopAdjust}
-             onMouseLeave={stopAdjust}
-             onTouchStart={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(1); }}
-             onTouchEnd={stopAdjust}
-             className="p-1.5 rounded bg-slate-900/50 hover:bg-slate-900 text-white/70 hover:text-white border border-white/10 transition-colors select-none"
-             title="Add 1 Second (Hold to repeat)"
-          >
-             <Plus size={14} />
-          </button>
+          <button onMouseDown={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(-1); }} onMouseUp={stopAdjust} onMouseLeave={stopAdjust} onTouchStart={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(-1); }} onTouchEnd={stopAdjust} className="p-1.5 rounded bg-slate-900/50 hover:bg-slate-900 text-white/70 hover:text-white border border-white/10 transition-colors select-none" title="Subtract 1 Second (Hold to repeat)"><Minus size={14} /></button>
+          <button onMouseDown={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(1); }} onMouseUp={stopAdjust} onMouseLeave={stopAdjust} onTouchStart={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(1); }} onTouchEnd={stopAdjust} className="p-1.5 rounded bg-slate-900/50 hover:bg-slate-900 text-white/70 hover:text-white border border-white/10 transition-colors select-none" title="Add 1 Second (Hold to repeat)"><Plus size={14} /></button>
         </div>
       </div>
-
       <div className="flex gap-2 items-center relative z-0">
         <div className="flex-1">
-          <input
-            type="number"
-            className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`}
-            placeholder="HH"
-            value={value.h}
-            onChange={(e) => handleChange('h', e.target.value)}
-            readOnly={readOnly}
-          />
+          <input type="number" className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`} placeholder="HH" value={value.h} onChange={(e) => handleChange('h', e.target.value)} readOnly={readOnly} />
           <span className="text-xs text-slate-400 text-center block mt-1">Hrs</span>
         </div>
         <span className="text-xl font-bold pb-4">:</span>
         <div className="flex-1">
-          <input
-            type="number"
-            className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`}
-            placeholder="MM"
-            value={value.m}
-            onChange={(e) => handleChange('m', e.target.value)}
-            readOnly={readOnly}
-          />
+          <input type="number" className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`} placeholder="MM" value={value.m} onChange={(e) => handleChange('m', e.target.value)} readOnly={readOnly} />
           <span className="text-xs text-slate-400 text-center block mt-1">Min</span>
         </div>
         <span className="text-xl font-bold pb-4">:</span>
         <div className="flex-1">
-          <input
-            type="number"
-            className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`}
-            placeholder="SS"
-            value={value.s}
-            onChange={(e) => handleChange('s', e.target.value)}
-            readOnly={readOnly}
-          />
+          <input type="number" className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`} placeholder="SS" value={value.s} onChange={(e) => handleChange('s', e.target.value)} readOnly={readOnly} />
           <span className="text-xs text-slate-400 text-center block mt-1">Sec</span>
         </div>
       </div>
@@ -466,70 +353,35 @@ const PetStatusBadge = ({ expiresAt }) => {
       const remaining = expiresAt - Date.now();
       setTimeLeft(remaining > 0 ? remaining : 0);
     }, 1000);
-    // Initial set
     const remaining = expiresAt - Date.now();
     setTimeLeft(remaining > 0 ? remaining : 0);
-    
     return () => clearInterval(interval);
   }, [expiresAt]);
 
-  if (!expiresAt) return (
-    <div className="flex items-center gap-1 text-slate-500 bg-slate-800/50 px-2 py-1 rounded text-[10px] font-bold border border-slate-700">
-       <Zap size={10} /> READY
-    </div>
-  );
-
-  if (timeLeft <= 0) return (
-    <div className="flex items-center gap-1 text-slate-500 bg-slate-800/50 px-2 py-1 rounded text-[10px] font-bold border border-slate-700">
-       <Ban size={10} /> USED
-    </div>
-  );
-
-  return (
-    <div className="flex items-center gap-1 text-amber-400 bg-amber-950/40 px-2 py-1 rounded text-[10px] font-mono font-bold border border-amber-900/50">
-       <Zap size={10} className="fill-amber-500 animate-pulse" /> {formatCountdown(timeLeft)}
-    </div>
-  );
+  if (!expiresAt) return ( <div className="flex items-center gap-1 text-slate-500 bg-slate-800/50 px-2 py-1 rounded text-[10px] font-bold border border-slate-700"><Zap size={10} /> READY</div> );
+  if (timeLeft <= 0) return ( <div className="flex items-center gap-1 text-slate-500 bg-slate-800/50 px-2 py-1 rounded text-[10px] font-bold border border-slate-700"><Ban size={10} /> USED</div> );
+  return ( <div className="flex items-center gap-1 text-amber-400 bg-amber-950/40 px-2 py-1 rounded text-[10px] font-mono font-bold border border-amber-900/50"><Zap size={10} className="fill-amber-500 animate-pulse" /> {formatCountdown(timeLeft)}</div> );
 };
 
-// --- Rally Lead Component (Manager View) ---
 const RallyLeadCard = ({ lead, onUpdate, onDelete }) => {
   const [timeLeft, setTimeLeft] = useState(0);
 
-  // Update timer logic
   useEffect(() => {
     const checkTime = () => {
       if (!lead.petExpiresAt) return;
       const remaining = lead.petExpiresAt - Date.now();
       setTimeLeft(remaining > 0 ? remaining : 0);
     };
-    
     checkTime();
     const interval = setInterval(checkTime, 1000);
     return () => clearInterval(interval);
   }, [lead.petExpiresAt]);
 
-  const activatePet = () => {
-    // Set expiry 2 hours from now
-    const twoHoursMs = 2 * 60 * 60 * 1000;
-    onUpdate(lead.id, { petExpiresAt: Date.now() + twoHoursMs });
-  };
-  
-  const reducePetTime = () => {
-      if (lead.petExpiresAt) {
-          // Reduce by 1 minute
-          const newExpiry = lead.petExpiresAt - 60000;
-          onUpdate(lead.id, { petExpiresAt: newExpiry });
-      }
-  };
-
-  const resetPet = () => {
-    onUpdate(lead.id, { petExpiresAt: null });
-  };
-
+  const activatePet = () => { onUpdate(lead.id, { petExpiresAt: Date.now() + (2 * 60 * 60 * 1000) }); };
+  const reducePetTime = () => { if (lead.petExpiresAt) { onUpdate(lead.id, { petExpiresAt: lead.petExpiresAt - 60000 }); } };
+  const resetPet = () => { onUpdate(lead.id, { petExpiresAt: null }); };
   const isExhausted = lead.petExpiresAt && timeLeft <= 0;
   const isActive = lead.petExpiresAt && timeLeft > 0;
-  
   const effectiveTime = getEffectiveMarchTime(lead.marchTime, isActive);
   const isEstimated = isActive && isCustomCalculation(lead.marchTime);
 
@@ -537,115 +389,44 @@ const RallyLeadCard = ({ lead, onUpdate, onDelete }) => {
     <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 flex flex-col gap-3">
       <div className="flex justify-between items-start">
          <div className="flex-1 space-y-2">
-            {/* Name Input */}
             <div className="flex items-center gap-2">
                <User size={16} className="text-slate-500"/>
-               <input 
-                  type="text" 
-                  value={lead.name}
-                  onChange={(e) => onUpdate(lead.id, { name: e.target.value })}
-                  placeholder="Rally Lead Name"
-                  className="bg-transparent border-b border-slate-700 focus:border-indigo-500 outline-none text-sm font-bold w-full"
-               />
+               <input type="text" value={lead.name} onChange={(e) => onUpdate(lead.id, { name: e.target.value })} placeholder="Rally Lead Name" className="bg-transparent border-b border-slate-700 focus:border-indigo-500 outline-none text-sm font-bold w-full" />
             </div>
-            
-            {/* March Time Input & Quick Selects */}
             <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2">
                    <Clock size={16} className="text-slate-500"/>
-                   <input 
-                      type="number" 
-                      value={lead.marchTime}
-                      onChange={(e) => onUpdate(lead.id, { marchTime: e.target.value })}
-                      placeholder="March Time (seconds)"
-                      className="bg-transparent border-b border-slate-700 focus:border-indigo-500 outline-none text-sm text-slate-300 w-full font-mono"
-                   />
-                   {/* Effective Time Display (if active) */}
+                   <input type="number" value={lead.marchTime} onChange={(e) => onUpdate(lead.id, { marchTime: e.target.value })} placeholder="March Time (seconds)" className="bg-transparent border-b border-slate-700 focus:border-indigo-500 outline-none text-sm text-slate-300 w-full font-mono" />
                    {isActive && (
-                       <div 
-                          className="flex items-center gap-1 text-xs font-mono text-green-400 bg-green-900/30 px-2 py-0.5 rounded border border-green-500/30 cursor-help"
-                          title={isEstimated ? "Calculated via formula (1.25 -> 1.55 speedup)" : "Using hardcoded value"}
-                       >
+                       <div className="flex items-center gap-1 text-xs font-mono text-green-400 bg-green-900/30 px-2 py-0.5 rounded border border-green-500/30 cursor-help" title={isEstimated ? "Calculated via formula" : "Using hardcoded value"}>
                            <ArrowRight size={12} /> {effectiveTime}s {isEstimated && <span className="text-[9px] opacity-70 ml-0.5">(Est.)</span>}
                        </div>
                    )}
                 </div>
-                {/* Quick Select Buttons */}
                 <div className="flex items-center gap-1 pl-6">
                    {[36, 39, 43, 48].map(time => (
-                      <button 
-                         key={time}
-                         onClick={() => onUpdate(lead.id, { marchTime: time })}
-                         className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
-                            parseInt(lead.marchTime) === time 
-                            ? 'bg-blue-600 border-blue-400 text-white' 
-                            : 'bg-slate-800 border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
-                         }`}
-                      >
-                         {time}s
-                      </button>
+                      <button key={time} onClick={() => onUpdate(lead.id, { marchTime: time })} className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${parseInt(lead.marchTime) === time ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-800 border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}>{time}s</button>
                    ))}
                 </div>
             </div>
          </div>
-         <button 
-            onClick={() => onDelete(lead.id)}
-            className="text-slate-600 hover:text-red-400 transition-colors"
-         >
-            <Trash2 size={16} />
-         </button>
+         <button onClick={() => onDelete(lead.id)} className="text-slate-600 hover:text-red-400 transition-colors"><Trash2 size={16} /></button>
       </div>
-
-      {/* Pet Status Section */}
       <div className="border-t border-slate-800 pt-3 mt-1">
          {!lead.petExpiresAt && (
-            <button 
-               onClick={activatePet}
-               className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-300 py-2 rounded text-xs font-bold transition-all border border-slate-700"
-            >
-               <Zap size={14} /> ACTIVATE PET (2H)
-            </button>
+            <button onClick={activatePet} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-300 py-2 rounded text-xs font-bold transition-all border border-slate-700"><Zap size={14} /> ACTIVATE PET (2H)</button>
          )}
-
          {isActive && (
             <div className="flex items-center gap-2">
-                <div className="flex-1 bg-amber-500/10 border border-amber-500/50 rounded py-2 px-3 flex items-center justify-between">
-                   <div className="flex items-center gap-2 text-amber-500 text-xs font-bold">
-                      <Zap size={14} className="fill-amber-500 animate-pulse"/> ACTIVE
-                   </div>
-                   <span className="font-mono text-sm font-bold text-amber-400">
-                      {formatCountdown(timeLeft)}
-                   </span>
-                </div>
-                <button 
-                   onClick={reducePetTime}
-                   className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-amber-400 hover:text-amber-200 transition-colors"
-                   title="Reduce time by 1 minute"
-                >
-                   <Minus size={14} />
-                </button>
-                <button 
-                   onClick={resetPet}
-                   className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-400 hover:text-white transition-colors"
-                   title="Reset Pet Status"
-                >
-                   <RotateCcw size={14} />
-                </button>
+                <div className="flex-1 bg-amber-500/10 border border-amber-500/50 rounded py-2 px-3 flex items-center justify-between"><div className="flex items-center gap-2 text-amber-500 text-xs font-bold"><Zap size={14} className="fill-amber-500 animate-pulse"/> ACTIVE</div><span className="font-mono text-sm font-bold text-amber-400">{formatCountdown(timeLeft)}</span></div>
+                <button onClick={reducePetTime} className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-amber-400 hover:text-amber-200 transition-colors" title="Reduce time by 1 minute"><Minus size={14} /></button>
+                <button onClick={resetPet} className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-400 hover:text-white transition-colors" title="Reset Pet Status"><RotateCcw size={14} /></button>
             </div>
          )}
-
          {isExhausted && (
             <div className="flex items-center gap-2">
-                <div className="flex-1 bg-slate-800/50 border border-slate-700 rounded py-2 px-3 flex items-center justify-center gap-2 text-slate-500 text-xs font-bold">
-                   <Ban size={14} /> PET EXHAUSTED
-                </div>
-                <button 
-                   onClick={resetPet}
-                   className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-400 hover:text-white transition-colors"
-                   title="Reset Pet Status"
-                >
-                   <RotateCcw size={14} />
-                </button>
+                <div className="flex-1 bg-slate-800/50 border border-slate-700 rounded py-2 px-3 flex items-center justify-center gap-2 text-slate-500 text-xs font-bold"><Ban size={14} /> PET EXHAUSTED</div>
+                <button onClick={resetPet} className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-400 hover:text-white transition-colors" title="Reset Pet Status"><RotateCcw size={14} /></button>
             </div>
          )}
       </div>
@@ -653,24 +434,18 @@ const RallyLeadCard = ({ lead, onUpdate, onDelete }) => {
   );
 };
 
-// --- Rally Group Card (Group View) ---
 const RallyGroupCard = ({ group, members, availableLeads, onAssign, onRemove, onActivatePet, onDelete, onUpdate }) => {
   const [isAdding, setIsAdding] = useState(false);
 
-  // Calculate March Time Range based on EFFECTIVE time
   const calculateMarchRange = () => {
-    const times = members
-        .map(m => {
+    const times = members.map(m => {
             const isActive = m.petExpiresAt && (m.petExpiresAt - Date.now() > 0);
             return getEffectiveMarchTime(m.marchTime, isActive);
-        })
-        .filter(t => t > 0);
+        }).filter(t => t > 0);
     
     if (times.length === 0) return 'N/A';
-    
     const min = Math.min(...times);
     const max = Math.max(...times);
-    
     if (min === max) return `${min}s`;
     return `${min}s - ${max}s`;
   };
@@ -679,77 +454,39 @@ const RallyGroupCard = ({ group, members, availableLeads, onAssign, onRemove, on
 
   return (
     <div className="bg-slate-900/50 border border-slate-700 rounded-xl overflow-hidden flex flex-col shadow-lg">
-       {/* Group Header */}
        <div className="p-3 bg-slate-900 border-b border-slate-700 flex justify-between items-start">
           <div className="flex flex-col gap-1">
              <div className="flex items-center gap-2">
                 <h3 className="font-bold text-sm text-white">{group.name}</h3>
-                <span className="text-[10px] text-slate-400 font-mono bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
-                    {members.length} Leads
-                </span>
+                <span className="text-[10px] text-slate-400 font-mono bg-slate-800 px-2 py-0.5 rounded border border-slate-700">{members.length} Leads</span>
              </div>
-             {/* March Range Display */}
              <div className="flex items-center gap-2">
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">March Range:</span>
-                <span className="text-xs font-bold font-mono text-indigo-300 bg-indigo-900/30 px-1.5 py-0.5 rounded border border-indigo-500/30">
-                    {marchRange}
-                </span>
+                <span className="text-xs font-bold font-mono text-indigo-300 bg-indigo-900/30 px-1.5 py-0.5 rounded border border-indigo-500/30">{marchRange}</span>
              </div>
           </div>
-          <button 
-             onClick={() => onDelete(group.id)}
-             className="text-slate-600 hover:text-red-500 transition-colors p-1"
-             title="Delete Group"
-          >
-             <Trash2 size={16} />
-          </button>
+          <button onClick={() => onDelete(group.id)} className="text-slate-600 hover:text-red-500 transition-colors p-1" title="Delete Group"><Trash2 size={16} /></button>
        </div>
-       
        <div className="p-2 flex flex-col gap-2 min-h-[100px]">
-          {members.length === 0 && !isAdding && (
-             <div className="flex-1 flex flex-col items-center justify-center text-slate-600 text-xs italic py-4">
-                No leads assigned
-             </div>
-          )}
-
+          {members.length === 0 && !isAdding && ( <div className="flex-1 flex flex-col items-center justify-center text-slate-600 text-xs italic py-4">No leads assigned</div> )}
           {members.map(lead => {
              const isActive = lead.petExpiresAt && (lead.petExpiresAt - Date.now() > 0);
              const effectiveTime = getEffectiveMarchTime(lead.marchTime, isActive);
              const isEstimated = isActive && isCustomCalculation(lead.marchTime);
-             
              return (
              <div key={lead.id} className="bg-slate-800 p-2.5 rounded-lg flex items-center justify-between group relative border border-white/5 hover:border-indigo-500/30 transition-colors">
                 <div className="flex flex-col w-full">
                    <div className="flex justify-between items-center mb-1.5">
                        <span className="text-sm font-bold text-white truncate max-w-[120px]">{lead.name || "Unknown"}</span>
-                       <button 
-                           onClick={() => onRemove(lead.id)}
-                           className="text-slate-600 hover:text-red-400 p-1"
-                           title="Remove from group"
-                        >
-                           <X size={14} />
-                        </button>
+                       <button onClick={() => onRemove(lead.id)} className="text-slate-600 hover:text-red-400 p-1" title="Remove from group"><X size={14} /></button>
                    </div>
-                   
                    <div className="flex items-center justify-between mt-1">
-                      {/* Highlighted March Time */}
-                      <span 
-                        className={`text-sm font-black text-white shadow-md px-2 py-1 rounded flex items-center gap-1.5 border ${isActive ? 'bg-green-600 border-green-400/50' : 'bg-blue-600 border-blue-400/50'}`}
-                        title={isEstimated ? "Calculated via formula" : ""}
-                      >
+                      <span className={`text-sm font-black text-white shadow-md px-2 py-1 rounded flex items-center gap-1.5 border ${isActive ? 'bg-green-600 border-green-400/50' : 'bg-blue-600 border-blue-400/50'}`} title={isEstimated ? "Calculated via formula" : ""}>
                          <Timer size={14} /> {effectiveTime}s {isEstimated && <span className="text-[9px] align-top">*</span>}
                       </span>
-                      
-                      {/* Pet Status / Activation */}
                       <div className="flex-shrink-0 flex items-center gap-1">
                         {!lead.petExpiresAt ? (
-                            <button 
-                                onClick={() => onActivatePet(lead.id)}
-                                className="flex items-center gap-1 text-[10px] bg-slate-700 hover:bg-indigo-600 text-white px-2 py-1 rounded border border-slate-600 transition-colors font-bold uppercase tracking-wide"
-                                title="Activate Pet (2h)"
-                            >
-                                <Zap size={10} /> ACTIVATE
-                            </button>
+                            <button onClick={() => onActivatePet(lead.id)} className="flex items-center gap-1 text-[10px] bg-slate-700 hover:bg-indigo-600 text-white px-2 py-1 rounded border border-slate-600 transition-colors font-bold uppercase tracking-wide" title="Activate Pet (2h)"><Zap size={10} /> ACTIVATE</button>
                         ) : (
                             <>
                                 <PetStatusBadge expiresAt={lead.petExpiresAt} />
@@ -769,34 +506,17 @@ const RallyGroupCard = ({ group, members, availableLeads, onAssign, onRemove, on
                 </div>
              </div>
           )})}
-
-          {/* Add Member UI */}
           {!isAdding ? (
-             <button 
-               onClick={() => setIsAdding(true)}
-               className="mt-2 w-full py-2.5 border border-dashed border-slate-700 text-slate-500 hover:text-indigo-400 hover:border-indigo-500/50 hover:bg-indigo-900/10 rounded text-xs font-bold transition-all flex items-center justify-center gap-1"
-             >
-                <Plus size={14} /> ASSIGN LEAD
-             </button>
+             <button onClick={() => setIsAdding(true)} className="mt-2 w-full py-2.5 border border-dashed border-slate-700 text-slate-500 hover:text-indigo-400 hover:border-indigo-500/50 hover:bg-indigo-900/10 rounded text-xs font-bold transition-all flex items-center justify-center gap-1"><Plus size={14} /> ASSIGN LEAD</button>
           ) : (
              <div className="mt-2 p-2 bg-black/60 backdrop-blur rounded border border-slate-700 animate-in fade-in zoom-in-95 duration-200">
-                <div className="flex justify-between items-center mb-2 px-1">
-                   <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Select Lead to Add</span>
-                   <button onClick={() => setIsAdding(false)}><X size={14} className="text-slate-400 hover:text-white"/></button>
-                </div>
+                <div className="flex justify-between items-center mb-2 px-1"><span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Select Lead to Add</span><button onClick={() => setIsAdding(false)}><X size={14} className="text-slate-400 hover:text-white"/></button></div>
                 <div className="flex flex-col gap-1 max-h-[150px] overflow-y-auto custom-scrollbar">
                    {availableLeads.length > 0 ? availableLeads.map(lead => (
-                      <button 
-                         key={lead.id}
-                         onClick={() => { onAssign(lead.id, group.id); setIsAdding(false); }}
-                         className="text-left text-xs text-slate-300 hover:bg-indigo-600 hover:text-white p-2 rounded transition-colors flex justify-between items-center group"
-                      >
-                         <span className="font-bold">{lead.name || "Unnamed"}</span>
-                         <span className="font-mono opacity-70 group-hover:opacity-100">{lead.marchTime || 0}s</span>
+                      <button key={lead.id} onClick={() => { onAssign(lead.id, group.id); setIsAdding(false); }} className="text-left text-xs text-slate-300 hover:bg-indigo-600 hover:text-white p-2 rounded transition-colors flex justify-between items-center group">
+                         <span className="font-bold">{lead.name || "Unnamed"}</span><span className="font-mono opacity-70 group-hover:opacity-100">{lead.marchTime || 0}s</span>
                       </button>
-                   )) : (
-                      <span className="text-[10px] text-slate-500 italic p-2 text-center">No unassigned leads available</span>
-                   )}
+                   )) : ( <span className="text-[10px] text-slate-500 italic p-2 text-center">No unassigned leads available</span> )}
                 </div>
              </div>
           )}
@@ -814,17 +534,17 @@ const App = () => {
   const [recordsView, setRecordsView] = useState('current'); // 'current' | 'history'
   
   // Time Data (Recoverable)
-  const [ourTime, setOurTime] = useState({ h: 0, m: 0, s: 0 }); // Initial values, will be hydrated from Firestore
-  const [enemyTime, setEnemyTime] = useState({ h: 0, m: 0, s: 0 });
-  const [remainingTime, setRemainingTime] = useState({ h: 5, m: 0, s: 0 });
+  const [ourTime, setOurTime] = useState(() => getSavedState('ourTime', { h: 0, m: 0, s: 0 }));
+  const [enemyTime, setEnemyTime] = useState(() => getSavedState('enemyTime', { h: 0, m: 0, s: 0 }));
+  const [remainingTime, setRemainingTime] = useState(() => getSavedState('remainingTime', { h: 5, m: 0, s: 0 }));
   
   // Live Tracker State (Recoverable)
   const [isTimerRunning, setIsTimerRunning] = useState(false); // Default false on reload to prevent confusion
-  const [castleOwner, setCastleOwner] = useState('neutral');
+  const [castleOwner, setCastleOwner] = useState(() => getSavedState('castleOwner', 'neutral'));
   
   // Real-Time States
-  const [battleStartTime, setBattleStartTime] = useState(null);
-  const [lastTick, setLastTick] = useState(0);
+  const [battleStartTime, setBattleStartTime] = useState(() => getSavedState('battleStartTime', null));
+  const [lastTick, setLastTick] = useState(() => getSavedState('lastTick', 0));
   
   // Auto-Start Feature State
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
@@ -833,7 +553,7 @@ const App = () => {
 
   // Screen Capture & Auto-Tracking State
   const videoRef = useRef(null);
-  const canvasRef = useRef(null); 
+  const canvasRef = useRef(null); // Used for image processing
   const [isScreenShared, setIsScreenShared] = useState(false);
   
   // Auto-Tracker Config
@@ -860,23 +580,23 @@ const App = () => {
   const [results, setResults] = useState(null);
 
   // Rally Leads State (Recoverable)
-  const [rallyLeads, setRallyLeads] = useState([]); 
+  const [rallyLeads, setRallyLeads] = useState(() => getSavedState('rallyLeads', [])); 
   
   // Groups Definition (Recoverable)
-  const [groups, setGroups] = useState([
+  const [groups, setGroups] = useState(() => getSavedState('groups', [
      { id: 'u1', side: 'us', name: 'Group 1' },
      { id: 'u2', side: 'us', name: 'Group 2' },
      { id: 'u3', side: 'us', name: 'Group 3' },
      { id: 'e1', side: 'enemy', name: 'Group 1' },
      { id: 'e2', side: 'enemy', name: 'Group 2' },
      { id: 'e3', side: 'enemy', name: 'Group 3' },
-  ]);
+  ]));
 
   // Battle Logs (Recoverable)
-  const [battleLog, setBattleLog] = useState([]);
+  const [battleLog, setBattleLog] = useState(() => getSavedState('battleLog', []));
   
   // Saved Battles History
-  const [savedBattles, setSavedBattles] = useState([]);
+  const [savedBattles, setSavedBattles] = useState(() => getSavedState('savedBattles', []));
   const [battleName, setBattleName] = useState("");
   
   // Separate state for the selected battle in History view
@@ -1015,8 +735,6 @@ const App = () => {
             if (updates.petExpiresAt > Date.now()) {
                  addLog(`Pet activated for ${lead.name || 'Unnamed Lead'}`, 'pet', lead.side);
             }
-            // Reset the logged flag when activating/extending
-            updates.expirationLogged = false;
         }
         // Log resets if explicitly set to null
         if (updates.petExpiresAt === null) {
@@ -1453,6 +1171,26 @@ const App = () => {
 
     return () => cancelAnimationFrame(animationFrameId);
   }, [isScreenShared, targetPixel, autoTrackEnabled, hasUsPattern, hasEnemyPattern, colorTolerance, scanSize]);
+
+  // 4. Pet Expiration Check Logic
+  useEffect(() => {
+    const interval = setInterval(() => {
+        const now = Date.now();
+        setRallyLeads(prevLeads => {
+            let hasUpdates = false;
+            const newLeads = prevLeads.map(lead => {
+                if (lead.petExpiresAt && lead.petExpiresAt <= now && !lead.expirationLogged) {
+                    addLog(`Pet expired for ${lead.name || 'Unnamed Lead'}`, 'pet', lead.side);
+                    hasUpdates = true;
+                    return { ...lead, expirationLogged: true };
+                }
+                return lead;
+            });
+            return hasUpdates ? newLeads : prevLeads;
+        });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [addLog]);
 
 
   // --- Screen Capture Handlers ---
