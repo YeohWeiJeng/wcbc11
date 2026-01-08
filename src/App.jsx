@@ -121,6 +121,17 @@ const calculatePatternDiff = (data1, data2) => {
   return totalDiff / (pixelCount * 3);
 };
 
+// --- Storage Helper ---
+const getSavedState = (key, initialValue) => {
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved) return JSON.parse(saved);
+  } catch (e) {
+    console.error("Error loading state", e);
+  }
+  return initialValue;
+};
+
 
 // --- Visual Timeline Component ---
 const VisualTimeline = ({ logs }) => {
@@ -735,6 +746,8 @@ const App = () => {
             if (updates.petExpiresAt > Date.now()) {
                  addLog(`Pet activated for ${lead.name || 'Unnamed Lead'}`, 'pet', lead.side);
             }
+            // Reset the logged flag when activating/extending
+            updates.expirationLogged = false;
         }
         // Log resets if explicitly set to null
         if (updates.petExpiresAt === null) {
@@ -891,11 +904,15 @@ const App = () => {
 
   const clearAllData = () => {
       if (window.confirm("Are you sure you want to clear CURRENT session data? This will not delete saved history.")) {
-         // Reset state locally (Firestore handles persistence differently, clearing local state is visual reset here)
-         // In a real Firestore app, you'd likely delete the user's document or collection.
-         // Here we just reset the state in memory and let the next save overwrite with empty data.
-          resetBattle(); 
-          setSavedBattles([]); 
+          localStorage.removeItem('ourTime');
+          localStorage.removeItem('enemyTime');
+          localStorage.removeItem('remainingTime');
+          localStorage.removeItem('castleOwner');
+          localStorage.removeItem('rallyLeads');
+          localStorage.removeItem('groups');
+          localStorage.removeItem('battleLog');
+          localStorage.removeItem('battleStartTime');
+          localStorage.removeItem('lastTick');
           window.location.reload();
       }
   };
