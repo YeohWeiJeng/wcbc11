@@ -24,6 +24,7 @@ export const useBattleSync = () => {
   const appId = typeof __app_id !== 'undefined' ? __app_id : (import.meta.env.VITE_FIREBASE_APP_ID || 'default-app-id');
 
   // 1. Monitor Authentication
+  // Even for public data, we need a user session to access Firestore
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -34,26 +35,27 @@ export const useBattleSync = () => {
     return () => unsubscribe();
   }, []);
 
-  // 2. Real-time Sync (Read)
+  // 2. Real-time Sync (Read) - SHARED PUBLIC PATH
   useEffect(() => {
     if (!user) return;
     setLoading(true);
 
     try {
-      // Mandatory Path Structure: /artifacts/{appId}/users/{userId}/{collectionName}/{docId}
+      // CHANGED: Removed 'users' and user.uid.
+      // Now points to: /artifacts/{appId}/public/data/active_battles/current_session
+      // This is the shared path everyone will listen to.
       const docRef = doc(
         db, 
         'artifacts', 
         appId, 
-        'users', 
-        user.uid, 
+        'public', 
+        'data', 
         'active_battles', 
         'current_session'
       );
 
       const unsubscribe = onSnapshot(docRef, (docSnap) => {
         if (docSnap.exists()) {
-          // Merge with default state to ensure all fields exist even if DB is partial
           setBattleState(prevState => ({
             ...prevState,
             ...docSnap.data()
@@ -72,25 +74,25 @@ export const useBattleSync = () => {
     }
   }, [user, appId]);
 
-  // 3. Update Function (Write)
+  // 3. Update Function (Write) - SHARED PUBLIC PATH
   const updateBattleState = useCallback(async (updates) => {
     if (!user) return;
 
     try {
+      // CHANGED: Must match the read path above so writes go to the shared document.
       const docRef = doc(
         db, 
         'artifacts', 
         appId, 
-        'users', 
-        user.uid, 
+        'public', 
+        'data', 
         'active_battles', 
         'current_session'
       );
 
-      // Use merge: true to update only specific fields without overwriting the whole doc
       await setDoc(docRef, {
         ...updates,
-        lastUpdated: Date.now() // Optional: track when update happened
+        lastUpdated: Date.now() 
       }, { merge: true });
 
     } catch (error) {
