@@ -830,6 +830,9 @@ const App = () => {
   // 2. Smart Setter Factory
   // Creates a setter that updates local state AND sends updates to Firebase
   const createSmartSetter = (key, localSetter) => (value) => {
+      // SECURITY CHECK: Don't save if we are still loading!
+      if (loading) return;
+
       localSetter(prev => {
           const resolvedValue = typeof value === 'function' ? value(prev) : value;
           // Fire-and-forget update to Firestore (merges with existing doc)
@@ -1534,6 +1537,15 @@ const App = () => {
     if (results.status === 'lost') return 'bg-red-900 border-red-500';
     return 'bg-slate-800 border-slate-600';
   };
+
+  if (loading) {
+  return (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-4">
+      <div className="animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
+      <p className="font-mono text-sm animate-pulse">Syncing with Battle Command...</p>
+    </div>
+  );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 flex flex-col items-center">
