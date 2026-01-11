@@ -2124,93 +2124,47 @@ const App = () => {
            ======================= */}
         {currentTab === 'records' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-             
-             {/* Sub-Navigation for Records */}
              <div className="flex justify-center mb-2">
                  <div className="bg-slate-900 p-1 rounded-lg border border-slate-700 flex gap-1">
-                    <button 
-                        onClick={() => setRecordsView('current')} 
-                        className={`px-4 py-2 rounded text-sm font-bold transition-all ${recordsView === 'current' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                    >
-                        Current Session Log
-                    </button>
-                    <button 
-                        onClick={() => setRecordsView('history')} 
-                        className={`px-4 py-2 rounded text-sm font-bold transition-all ${recordsView === 'history' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                    >
-                        Saved History
-                    </button>
+                    <button onClick={() => setRecordsView('current')} className={`px-4 py-2 rounded text-sm font-bold transition-all ${recordsView === 'current' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>Current Session Log</button>
+                    <button onClick={() => setRecordsView('history')} className={`px-4 py-2 rounded text-sm font-bold transition-all ${recordsView === 'history' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>Saved History</button>
                  </div>
              </div>
-
-             {/* === CURRENT SESSION VIEW === */}
              {recordsView === 'current' && (
                  <>
                      <div className="flex flex-col gap-4 bg-slate-900/50 p-4 rounded-lg border border-slate-700">
-                        {/* Save Controls */}
                         <div className="flex flex-col md:flex-row gap-4 justify-between items-center border-b border-white/10 pb-4 mb-2">
-                           <div className="flex-1 w-full">
-                               <label className="text-xs text-slate-400 font-bold uppercase mb-1 block">Battle Name</label>
-                               <div className="flex gap-2">
-                                   <input 
-                                      type="text" 
-                                      value={battleName}
-                                      onChange={(e) => setBattleName(e.target.value)}
-                                      placeholder="e.g. 1611 vs 1513"
-                                      className="bg-black/40 border border-slate-600 rounded px-3 py-2 text-sm text-white w-full focus:border-indigo-500 outline-none"
-                                   />
-                                   <button 
-                                      onClick={saveBattleLog}
-                                      className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap"
-                                   >
-                                      <Save size={16} /> Save History
-                                   </button>
-                               </div>
-                           </div>
-                           <div className="flex items-end gap-2">
-                               <button 
-                                   onClick={exportCurrentSession}
-                                   className="bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 px-3 py-2 rounded text-xs font-bold transition-all flex items-center gap-2"
-                                   title="Download current session as JSON"
-                                >
-                                   <Download size={16} /> Export Session
-                                </button>
-                               <button 
-                                   onClick={clearAllData}
-                                   className="bg-red-900/30 hover:bg-red-900/50 text-red-300 border border-red-800/50 px-3 py-2 rounded text-xs font-bold transition-all flex items-center gap-2"
-                                >
-                                   <Trash2 size={16} /> Clear Session
-                                </button>
-                           </div>
+                           <div className="flex-1 w-full"><label className="text-xs text-slate-400 font-bold uppercase mb-1 block">Battle Name</label><div className="flex gap-2"><input type="text" value={battleName} onChange={(e) => setBattleName(e.target.value)} placeholder="e.g. 1611 vs 1513" className="bg-black/40 border border-slate-600 rounded px-3 py-2 text-sm text-white w-full focus:border-indigo-500 outline-none" /><button onClick={saveBattleLog} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap"><Save size={16} /> Save History</button></div></div>
+                           <div className="flex items-end gap-2"><button onClick={exportCurrentSession} className="bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 px-3 py-2 rounded text-xs font-bold transition-all flex items-center gap-2" title="Download current session as JSON"><Download size={16} /> Export Session</button><button onClick={clearAllData} className="bg-red-900/30 hover:bg-red-900/50 text-red-300 border border-red-800/50 px-3 py-2 rounded text-xs font-bold transition-all flex items-center gap-2"><Trash2 size={16} /> Clear Session</button></div>
                         </div>
+                        
+                        {/* ADDED: Visual Timeline for Current Session */}
+                        {battleLog.length > 0 && (
+                           <div className="p-2 border-b border-white/10 mb-2">
+                               <VisualTimeline logs={[...battleLog, { 
+                                   id: Date.now(), 
+                                   timestamp: new Date().toISOString().replace('T', ' ').split('.')[0] + ' UTC', 
+                                   type: 'current', 
+                                   message: 'Now', 
+                                   side: 'neutral' 
+                               }]} />
+                           </div>
+                        )}
 
-                        <div className="flex items-center gap-2 text-lg font-bold text-slate-200">
-                           <History size={20} className="text-slate-400"/> Live Activity Feed
-                        </div>
+                        <div className="flex items-center gap-2 text-lg font-bold text-slate-200"><History size={20} className="text-slate-400"/> Live Activity Feed</div>
                      </div>
-
                      <div className="bg-black/20 rounded-xl border border-slate-800 overflow-hidden">
                         <div className="max-h-[500px] overflow-y-auto custom-scrollbar p-2">
                            {battleLog.length > 0 ? (
                               <div className="flex flex-col gap-2">
                                 {battleLog.map((log) => (
-                                   <div key={log.id} className={`flex gap-3 p-3 rounded border-l-4 ${
-                                       log.type === 'victory' ? 'bg-amber-900/20 border-amber-500' :
-                                       log.type === 'occupation' ? 'bg-indigo-900/20 border-indigo-500' :
-                                       log.type === 'pet' ? 'bg-emerald-900/20 border-emerald-500' :
-                                       'bg-slate-900/40 border-slate-600'
-                                   }`}>
+                                   <div key={log.id} className={`flex gap-3 p-3 rounded border-l-4 ${log.type === 'victory' ? 'bg-amber-900/20 border-amber-500' : log.type === 'occupation' ? 'bg-indigo-900/20 border-indigo-500' : log.type === 'pet' ? 'bg-emerald-900/20 border-emerald-500' : 'bg-slate-900/40 border-slate-600'}`}>
                                       <span className="text-xs font-mono text-slate-500 whitespace-nowrap pt-0.5">{log.timestamp}</span>
                                       <span className="text-sm text-slate-300">{log.message}</span>
                                    </div>
                                 ))}
                               </div>
-                           ) : (
-                              <div className="flex flex-col items-center justify-center py-12 text-slate-600">
-                                 <History size={48} className="mb-2 opacity-20"/>
-                                 <p className="text-sm">No activity recorded yet.</p>
-                              </div>
-                           )}
+                           ) : ( <div className="flex flex-col items-center justify-center py-12 text-slate-600"><History size={48} className="mb-2 opacity-20"/><p className="text-sm">No activity recorded yet.</p></div> )}
                         </div>
                      </div>
                  </>
