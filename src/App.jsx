@@ -42,7 +42,7 @@ import {
   Download,
   BookOpen
 } from 'lucide-react';
-import { useFirestore } from './useFirestore';
+import { useBattleSync } from './useBattleSync';
 
 // --- Global Helpers ---
 
@@ -93,32 +93,40 @@ const getEffectiveMarchTime = (inputTime, isPetActive) => {
   const t = parseInt(inputTime) || 0;
   if (!isPetActive) return t;
 
+  // If the time matches one of our known spots, use the hardcoded value
   if (MARCH_TIME_MAPPING[t]) {
     return MARCH_TIME_MAPPING[t];
   }
 
   // Fallback for manual/custom inputs: default formula
+  // Input Time is 125% speed. Active is 155% speed.
   return Math.floor(t * (1.25 / 1.55));
 };
 
+// Helper to check if a calculation is custom (formula based)
 const isCustomCalculation = (inputTime) => {
     const t = parseInt(inputTime) || 0;
     return !MARCH_TIME_MAPPING[t];
 };
 
+// Function to compare two image data arrays (pixel by pixel)
 const calculatePatternDiff = (data1, data2) => {
-  if (!data1 || !data2 || data1.length !== data2.length) return 255; 
+  if (!data1 || !data2 || data1.length !== data2.length) return 255; // Max diff if mismatch
 
   let totalDiff = 0;
+  // Step by 4 (R, G, B, A)
   for (let i = 0; i < data1.length; i += 4) {
+    // Simple sum of absolute differences for R, G, B
     const rDiff = Math.abs(data1[i] - data2[i]);
     const gDiff = Math.abs(data1[i+1] - data2[i+1]);
     const bDiff = Math.abs(data1[i+2] - data2[i+2]);
+    
     totalDiff += (rDiff + gDiff + bDiff);
   }
   
+  // Normalize per pixel (3 channels)
   const pixelCount = data1.length / 4;
-  return totalDiff / (pixelCount * 3);
+  return totalDiff / (pixelCount * 3); // Average difference per channel per pixel (0-255)
 };
 
 // --- Storage Helper ---
@@ -137,6 +145,7 @@ const getSavedState = (key, initialValue) => {
 const VisualTimeline = ({ logs }) => {
   if (!logs || logs.length === 0) return null;
 
+  // Sort logs by time (id is timestamp)
   const sortedLogs = [...logs].sort((a, b) => a.id - b.id);
   const startTime = sortedLogs[0].id;
   const endTime = sortedLogs[sortedLogs.length - 1].id;
@@ -144,10 +153,12 @@ const VisualTimeline = ({ logs }) => {
 
   if (totalDuration === 0) return <div className="text-center text-xs text-slate-500 p-4">Not enough data for timeline visualization</div>;
 
+  // 1. Build Occupation Segments
   const segments = [];
   let currentOwner = 'neutral';
   let segmentStart = startTime;
 
+  // Helper to parse owner from log message
   const getOwnerFromLog = (msg) => {
     if (msg.includes('OURS')) return 'us';
     if (msg.includes('ENEMY')) return 'enemy';
@@ -156,17 +167,20 @@ const VisualTimeline = ({ logs }) => {
 
   sortedLogs.forEach((log) => {
     if (log.type === 'occupation') {
+      // End previous segment
       segments.push({
         owner: currentOwner,
         start: segmentStart,
         end: log.id,
         width: ((log.id - segmentStart) / totalDuration) * 100
       });
+      // Start new segment
       currentOwner = getOwnerFromLog(log.message);
       segmentStart = log.id;
     }
   });
 
+  // Push final segment
   segments.push({
     owner: currentOwner,
     start: segmentStart,
@@ -174,25 +188,35 @@ const VisualTimeline = ({ logs }) => {
     width: ((endTime - segmentStart) / totalDuration) * 100
   });
 
-  const petEventsRaw = sortedLogs.filter(l => ['pet', 'victory'].includes(l.type)).map(log => ({
+  // 2. Filter Point Events (Pets AND Victory)
+  const pointEventsRaw = sortedLogs.filter(l => ['pet', 'victory'].includes(l.type)).map(log => ({
     ...log,
     left: ((log.id - startTime) / totalDuration) * 100
   }));
 
+  // Assign stack levels (slots) to events to prevent visual overlap
   const pointEvents = [];
-  petEventsRaw.forEach((ev) => {
+  pointEventsRaw.forEach((ev) => {
+      // Find a slot that doesn't conflict with recent events
       let slot = 0;
-      const threshold = 5; 
+      const threshold = 5; // % width threshold for overlap
+      
       while (true) {
+          // Check if any existing event in this slot is too close
           const collision = pointEvents.some(prev => 
              prev.slot === slot && Math.abs(prev.left - ev.left) < threshold
           );
-          if (!collision) break;
+          
+          if (!collision) {
+              break;
+          }
           slot++;
       }
       pointEvents.push({ ...ev, slot });
   });
 
+
+  // Helper for UTC formatting in timeline
   const formatTimeUTC = (timestamp) => {
     return new Date(timestamp).toLocaleTimeString('en-US', { 
         timeZone: 'UTC', 
@@ -208,7 +232,11 @@ const VisualTimeline = ({ logs }) => {
       <h4 className="text-xs font-bold text-slate-400 uppercase mb-4 flex items-center gap-2">
          <Clock size={12}/> Battle Visualization
       </h4>
+      
+      {/* Timeline Container - Increased Height for Stacking */}
       <div className="relative w-full h-64 mt-4">
+        
+        {/* Occupation Bar (Background) - Positioned at bottom */}
         <div className="absolute bottom-8 left-0 right-0 h-4 bg-slate-800 rounded-full overflow-hidden flex border border-slate-600/50 z-0">
           {segments.map((seg, i) => (
             <div 
@@ -222,14 +250,19 @@ const VisualTimeline = ({ logs }) => {
             />
           ))}
         </div>
+
+        {/* Markers (Overlay) - Stacking upwards from the bar */}
         {pointEvents.map((ev, i) => {
+          // Determine color based on side and type
           const isUs = ev.side === 'us';
           const isEnemy = ev.side === 'enemy';
           const isVictory = ev.type === 'victory';
-          let markerColorClass = 'text-yellow-500 border-yellow-500';
+          
+          let markerColorClass = 'text-yellow-500 border-yellow-500'; // Fallback
           let lineColorClass = 'bg-yellow-500/50';
           let Icon = Zap;
           let iconSize = 8;
+
           if (isVictory) {
               markerColorClass = 'text-yellow-400 border-yellow-400 bg-yellow-900 text-yellow-100 ring-2 ring-yellow-500';
               lineColorClass = 'bg-yellow-500';
@@ -242,96 +275,192 @@ const VisualTimeline = ({ logs }) => {
             markerColorClass = 'text-orange-500 border-orange-500 bg-orange-950';
             lineColorClass = 'bg-orange-500/50';
           }
+
+          // Calculate vertical position based on slot
           const bottomPos = 48 + (ev.slot * 24); 
           const lineHeight = bottomPos - 32;
+
           return (
             <div 
               key={i}
               className="absolute transform -translate-x-1/2 flex flex-col items-center group z-10 hover:z-50"
               style={{ left: `${ev.left}%`, bottom: `${bottomPos}px` }}
             >
+              {/* Hover Tooltip */}
               <div className="opacity-0 group-hover:opacity-100 absolute bottom-full mb-1 bg-black/90 border border-slate-600 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap pointer-events-none transition-opacity shadow-xl z-50">
                  <span className={`font-bold block mb-0.5 ${isVictory ? 'text-yellow-300' : isUs ? 'text-cyan-400' : isEnemy ? 'text-orange-500' : 'text-yellow-400'}`}>
                     {isVictory ? 'BATTLE OUTCOME' : formatTimeUTC(ev.id) + ' (UTC)'}
                  </span>
                  {ev.message}
               </div>
+              
+              {/* Icon */}
               <div className={`w-5 h-5 rounded-full border flex items-center justify-center shadow-sm cursor-help hover:scale-125 transition-transform z-20 ${markerColorClass}`}>
                  <Icon size={iconSize} />
               </div>
-               <div className={`w-0.5 absolute top-full left-1/2 -translate-x-1/2 z-0 ${lineColorClass}`} style={{ height: `${lineHeight}px` }}></div>
+
+               {/* Connector Line to Bar */}
+               <div 
+                 className={`w-0.5 absolute top-full left-1/2 -translate-x-1/2 z-0 ${lineColorClass}`}
+                 style={{ height: `${lineHeight}px` }}
+               ></div>
             </div>
           );
         })}
-        <div className="absolute bottom-0 left-0 text-[10px] text-slate-500 -translate-x-2 font-mono">{formatTimeUTC(startTime)}</div>
-        <div className="absolute bottom-0 right-0 text-[10px] text-slate-500 translate-x-2 font-mono">{formatTimeUTC(endTime)}</div>
+        
+        {/* Start/End Labels */}
+        <div className="absolute bottom-0 left-0 text-[10px] text-slate-500 -translate-x-2 font-mono">
+           {formatTimeUTC(startTime)}
+        </div>
+        <div className="absolute bottom-0 right-0 text-[10px] text-slate-500 translate-x-2 font-mono">
+           {formatTimeUTC(endTime)}
+        </div>
+
       </div>
+      
+      {/* Legend */}
       <div className="flex flex-wrap gap-4 mt-2 justify-center text-[10px] text-slate-400 bg-black/20 p-2 rounded border border-white/5">
          <div className="flex items-center gap-1.5"><div className="w-2 h-2 bg-blue-600 rounded-full ring-1 ring-white/10"></div> Us Occ.</div>
          <div className="flex items-center gap-1.5"><div className="w-2 h-2 bg-red-600 rounded-full ring-1 ring-white/10"></div> Enemy Occ.</div>
          <div className="flex items-center gap-1.5"><div className="w-2 h-2 bg-slate-700 rounded-full ring-1 ring-white/10"></div> Neutral</div>
+         
+         {/* Pet Legend */}
          <div className="flex items-center gap-3 border-l border-slate-700 pl-3 ml-1">
-             <div className="flex items-center gap-1.5"><Zap size={10} className="text-cyan-400"/> Us Pet</div>
-             <div className="flex items-center gap-1.5"><Zap size={10} className="text-orange-500"/> Enemy Pet</div>
-             <div className="flex items-center gap-1.5"><Trophy size={10} className="text-yellow-400"/> Victory/Defeat</div>
+             <div className="flex items-center gap-1.5">
+                <Zap size={10} className="text-cyan-400"/> Us Pet
+             </div>
+             <div className="flex items-center gap-1.5">
+                <Zap size={10} className="text-orange-500"/> Enemy Pet
+             </div>
+             <div className="flex items-center gap-1.5">
+                <Trophy size={10} className="text-yellow-400"/> Victory/Defeat
+             </div>
          </div>
       </div>
     </div>
   );
 };
 
+
 // --- Utility Components ---
+
 const TimeInput = ({ label, value, onChange, colorClass, readOnly = false }) => {
   const valueRef = useRef(value);
   useEffect(() => { valueRef.current = value; }, [value]);
 
   const handleChange = (field, val) => {
-    if (readOnly) return; 
+    if (readOnly) return; // Prevent typing in readOnly mode
     let newValue = parseInt(val) || 0;
+    // Basic clamping
     if (newValue < 0) newValue = 0;
     if (field === 'h' && newValue > 5) newValue = 5;
     if ((field === 'm' || field === 's') && newValue > 59) newValue = 59;
+
     onChange({ ...value, [field]: newValue });
   };
+
   const intervalRef = useRef(null);
   const timeoutRef = useRef(null);
+
   const startAdjust = (delta) => {
     const adjust = () => {
       const currentSec = toSeconds(valueRef.current);
       const newSec = currentSec + delta;
-      if (newSec >= 0) onChange(fromSeconds(newSec));
+      if (newSec >= 0) {
+        onChange(fromSeconds(newSec));
+      }
     };
+    // Immediate execution
     adjust();
-    timeoutRef.current = setTimeout(() => { intervalRef.current = setInterval(adjust, 100); }, 500); 
+    // Rapid fire after hold
+    timeoutRef.current = setTimeout(() => {
+      intervalRef.current = setInterval(adjust, 100); 
+    }, 500); 
   };
+
   const stopAdjust = () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (intervalRef.current) clearInterval(intervalRef.current);
   };
-  useEffect(() => { return () => stopAdjust(); }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => stopAdjust();
+  }, []);
+
   return (
     <div className={`relative p-4 rounded-xl border border-opacity-20 bg-opacity-10 ${colorClass} flex flex-col gap-2 transition-all ${readOnly ? 'opacity-90' : ''}`}>
+      
+      {/* Overlay to block direct typing in Live Mode, but sit behind the adjustment buttons */}
       {readOnly && <div className="absolute inset-0 bg-transparent z-10 cursor-not-allowed" title="Direct typing disabled. Use +/- buttons." />}
+
+      {/* Header with Label and Adjustment Buttons (z-20 to sit above overlay) */}
       <div className="flex justify-between items-center relative z-20">
-        <label className="text-sm font-bold uppercase tracking-wider opacity-90 flex items-center gap-2">{label}</label>
+        <label className="text-sm font-bold uppercase tracking-wider opacity-90 flex items-center gap-2">
+          {label}
+        </label>
+        
+        {/* Adjustment Controls */}
         <div className="flex items-center gap-1">
-          <button onMouseDown={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(-1); }} onMouseUp={stopAdjust} onMouseLeave={stopAdjust} onTouchStart={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(-1); }} onTouchEnd={stopAdjust} className="p-1.5 rounded bg-slate-900/50 hover:bg-slate-900 text-white/70 hover:text-white border border-white/10 transition-colors select-none" title="Subtract 1 Second (Hold to repeat)"><Minus size={14} /></button>
-          <button onMouseDown={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(1); }} onMouseUp={stopAdjust} onMouseLeave={stopAdjust} onTouchStart={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(1); }} onTouchEnd={stopAdjust} className="p-1.5 rounded bg-slate-900/50 hover:bg-slate-900 text-white/70 hover:text-white border border-white/10 transition-colors select-none" title="Add 1 Second (Hold to repeat)"><Plus size={14} /></button>
+          <button 
+             onMouseDown={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(-1); }}
+             onMouseUp={stopAdjust}
+             onMouseLeave={stopAdjust}
+             onTouchStart={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(-1); }}
+             onTouchEnd={stopAdjust}
+             className="p-1.5 rounded bg-slate-900/50 hover:bg-slate-900 text-white/70 hover:text-white border border-white/10 transition-colors select-none"
+             title="Subtract 1 Second (Hold to repeat)"
+          >
+             <Minus size={14} />
+          </button>
+          <button 
+             onMouseDown={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(1); }}
+             onMouseUp={stopAdjust}
+             onMouseLeave={stopAdjust}
+             onTouchStart={(e) => { if(e.cancelable) e.preventDefault(); startAdjust(1); }}
+             onTouchEnd={stopAdjust}
+             className="p-1.5 rounded bg-slate-900/50 hover:bg-slate-900 text-white/70 hover:text-white border border-white/10 transition-colors select-none"
+             title="Add 1 Second (Hold to repeat)"
+          >
+             <Plus size={14} />
+          </button>
         </div>
       </div>
+
       <div className="flex gap-2 items-center relative z-0">
         <div className="flex-1">
-          <input type="number" className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`} placeholder="HH" value={value.h} onChange={(e) => handleChange('h', e.target.value)} readOnly={readOnly} />
+          <input
+            type="number"
+            className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`}
+            placeholder="HH"
+            value={value.h}
+            onChange={(e) => handleChange('h', e.target.value)}
+            readOnly={readOnly}
+          />
           <span className="text-xs text-slate-400 text-center block mt-1">Hrs</span>
         </div>
         <span className="text-xl font-bold pb-4">:</span>
         <div className="flex-1">
-          <input type="number" className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`} placeholder="MM" value={value.m} onChange={(e) => handleChange('m', e.target.value)} readOnly={readOnly} />
+          <input
+            type="number"
+            className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`}
+            placeholder="MM"
+            value={value.m}
+            onChange={(e) => handleChange('m', e.target.value)}
+            readOnly={readOnly}
+          />
           <span className="text-xs text-slate-400 text-center block mt-1">Min</span>
         </div>
         <span className="text-xl font-bold pb-4">:</span>
         <div className="flex-1">
-          <input type="number" className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`} placeholder="SS" value={value.s} onChange={(e) => handleChange('s', e.target.value)} readOnly={readOnly} />
+          <input
+            type="number"
+            className={`w-full bg-slate-900 border border-slate-700 rounded p-2 text-center text-lg font-mono focus:outline-none focus:border-blue-500 ${readOnly ? 'text-slate-400' : ''}`}
+            placeholder="SS"
+            value={value.s}
+            onChange={(e) => handleChange('s', e.target.value)}
+            readOnly={readOnly}
+          />
           <span className="text-xs text-slate-400 text-center block mt-1">Sec</span>
         </div>
       </div>
@@ -341,73 +470,193 @@ const TimeInput = ({ label, value, onChange, colorClass, readOnly = false }) => 
 
 const PetStatusBadge = ({ expiresAt }) => {
   const [timeLeft, setTimeLeft] = useState(0);
+
   useEffect(() => {
     if (!expiresAt) return;
     const interval = setInterval(() => {
       const remaining = expiresAt - Date.now();
       setTimeLeft(remaining > 0 ? remaining : 0);
     }, 1000);
+    // Initial set
     const remaining = expiresAt - Date.now();
     setTimeLeft(remaining > 0 ? remaining : 0);
+    
     return () => clearInterval(interval);
   }, [expiresAt]);
-  if (!expiresAt) return ( <div className="flex items-center gap-1 text-slate-500 bg-slate-800/50 px-2 py-1 rounded text-[10px] font-bold border border-slate-700"><Zap size={10} /> READY</div> );
-  if (timeLeft <= 0) return ( <div className="flex items-center gap-1 text-slate-500 bg-slate-800/50 px-2 py-1 rounded text-[10px] font-bold border border-slate-700"><Ban size={10} /> USED</div> );
-  return ( <div className="flex items-center gap-1 text-amber-400 bg-amber-950/40 px-2 py-1 rounded text-[10px] font-mono font-bold border border-amber-900/50"><Zap size={10} className="fill-amber-500 animate-pulse" /> {formatCountdown(timeLeft)}</div> );
+
+  if (!expiresAt) return (
+    <div className="flex items-center gap-1 text-slate-500 bg-slate-800/50 px-2 py-1 rounded text-[10px] font-bold border border-slate-700">
+       <Zap size={10} /> READY
+    </div>
+  );
+
+  if (timeLeft <= 0) return (
+    <div className="flex items-center gap-1 text-slate-500 bg-slate-800/50 px-2 py-1 rounded text-[10px] font-bold border border-slate-700">
+       <Ban size={10} /> USED
+    </div>
+  );
+
+  return (
+    <div className="flex items-center gap-1 text-amber-400 bg-amber-950/40 px-2 py-1 rounded text-[10px] font-mono font-bold border border-amber-900/50">
+       <Zap size={10} className="fill-amber-500 animate-pulse" /> {formatCountdown(timeLeft)}
+    </div>
+  );
 };
 
+// --- Rally Lead Component (Manager View) ---
 const RallyLeadCard = ({ lead, onUpdate, onDelete }) => {
   const [timeLeft, setTimeLeft] = useState(0);
+
+  // Update timer logic
   useEffect(() => {
     const checkTime = () => {
       if (!lead.petExpiresAt) return;
       const remaining = lead.petExpiresAt - Date.now();
       setTimeLeft(remaining > 0 ? remaining : 0);
     };
+    
     checkTime();
     const interval = setInterval(checkTime, 1000);
     return () => clearInterval(interval);
   }, [lead.petExpiresAt]);
-  const activatePet = () => { onUpdate(lead.id, { petExpiresAt: Date.now() + (2 * 60 * 60 * 1000) }); };
-  const reducePetTime = () => { if (lead.petExpiresAt) { onUpdate(lead.id, { petExpiresAt: lead.petExpiresAt - 60000 }); } };
-  const resetPet = () => { onUpdate(lead.id, { petExpiresAt: null }); };
+
+  const activatePet = () => {
+    // Set expiry 2 hours from now
+    const twoHoursMs = 2 * 60 * 60 * 1000;
+    onUpdate(lead.id, { petExpiresAt: Date.now() + twoHoursMs });
+  };
+  
+  const reducePetTime = () => {
+      if (lead.petExpiresAt) {
+          // Reduce by 1 minute
+          const newExpiry = lead.petExpiresAt - 60000;
+          onUpdate(lead.id, { petExpiresAt: newExpiry });
+      }
+  };
+
+  const resetPet = () => {
+    onUpdate(lead.id, { petExpiresAt: null });
+  };
+
   const isExhausted = lead.petExpiresAt && timeLeft <= 0;
   const isActive = lead.petExpiresAt && timeLeft > 0;
+  
   const effectiveTime = getEffectiveMarchTime(lead.marchTime, isActive);
   const isEstimated = isActive && isCustomCalculation(lead.marchTime);
+
   return (
     <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 flex flex-col gap-3">
       <div className="flex justify-between items-start">
          <div className="flex-1 space-y-2">
-            <div className="flex items-center gap-2"><User size={16} className="text-slate-500"/><input type="text" value={lead.name} onChange={(e) => onUpdate(lead.id, { name: e.target.value })} placeholder="Rally Lead Name" className="bg-transparent border-b border-slate-700 focus:border-indigo-500 outline-none text-sm font-bold w-full" /></div>
+            {/* Name Input */}
+            <div className="flex items-center gap-2">
+               <User size={16} className="text-slate-500"/>
+               <input 
+                  type="text" 
+                  value={lead.name}
+                  onChange={(e) => onUpdate(lead.id, { name: e.target.value })}
+                  placeholder="Rally Lead Name"
+                  className="bg-transparent border-b border-slate-700 focus:border-indigo-500 outline-none text-sm font-bold w-full"
+               />
+            </div>
+            
+            {/* March Time Input & Quick Selects */}
             <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2">
                    <Clock size={16} className="text-slate-500"/>
-                   <input type="number" value={lead.marchTime} onChange={(e) => onUpdate(lead.id, { marchTime: e.target.value })} placeholder="March Time (seconds)" className="bg-transparent border-b border-slate-700 focus:border-indigo-500 outline-none text-sm text-slate-300 w-full font-mono" />
+                   <input 
+                      type="number" 
+                      value={lead.marchTime}
+                      onChange={(e) => onUpdate(lead.id, { marchTime: e.target.value })}
+                      placeholder="March Time (seconds)"
+                      className="bg-transparent border-b border-slate-700 focus:border-indigo-500 outline-none text-sm text-slate-300 w-full font-mono"
+                   />
+                   {/* Effective Time Display (if active) */}
                    {isActive && (
-                       <div className="flex items-center gap-1 text-xs font-mono text-green-400 bg-green-900/30 px-2 py-0.5 rounded border border-green-500/30 cursor-help" title={isEstimated ? "Calculated via formula" : "Using hardcoded value"}><ArrowRight size={12} /> {effectiveTime}s {isEstimated && <span className="text-[9px] opacity-70 ml-0.5">(Est.)</span>}</div>
+                       <div 
+                          className="flex items-center gap-1 text-xs font-mono text-green-400 bg-green-900/30 px-2 py-0.5 rounded border border-green-500/30 cursor-help"
+                          title={isEstimated ? "Calculated via formula (1.25 -> 1.55 speedup)" : "Using hardcoded value"}
+                       >
+                           <ArrowRight size={12} /> {effectiveTime}s {isEstimated && <span className="text-[9px] opacity-70 ml-0.5">(Est.)</span>}
+                       </div>
                    )}
                 </div>
+                {/* Quick Select Buttons */}
                 <div className="flex items-center gap-1 pl-6">
-                   {[36, 39, 43, 48].map(time => ( <button key={time} onClick={() => onUpdate(lead.id, { marchTime: time })} className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${parseInt(lead.marchTime) === time ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-800 border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}>{time}s</button> ))}
+                   {[36, 39, 43, 48].map(time => (
+                      <button 
+                         key={time}
+                         onClick={() => onUpdate(lead.id, { marchTime: time })}
+                         className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                            parseInt(lead.marchTime) === time 
+                            ? 'bg-blue-600 border-blue-400 text-white' 
+                            : 'bg-slate-800 border-slate-600 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                         }`}
+                      >
+                         {time}s
+                      </button>
+                   ))}
                 </div>
             </div>
          </div>
-         <button onClick={() => onDelete(lead.id)} className="text-slate-600 hover:text-red-400 transition-colors"><Trash2 size={16} /></button>
+         <button 
+            onClick={() => onDelete(lead.id)}
+            className="text-slate-600 hover:text-red-400 transition-colors"
+         >
+            <Trash2 size={16} />
+         </button>
       </div>
+
+      {/* Pet Status Section */}
       <div className="border-t border-slate-800 pt-3 mt-1">
-         {!lead.petExpiresAt && ( <button onClick={activatePet} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-300 py-2 rounded text-xs font-bold transition-all border border-slate-700"><Zap size={14} /> ACTIVATE PET (2H)</button> )}
+         {!lead.petExpiresAt && (
+            <button 
+               onClick={activatePet}
+               className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-300 py-2 rounded text-xs font-bold transition-all border border-slate-700"
+            >
+               <Zap size={14} /> ACTIVATE PET (2H)
+            </button>
+         )}
+
          {isActive && (
             <div className="flex items-center gap-2">
-                <div className="flex-1 bg-amber-500/10 border border-amber-500/50 rounded py-2 px-3 flex items-center justify-between"><div className="flex items-center gap-2 text-amber-500 text-xs font-bold"><Zap size={14} className="fill-amber-500 animate-pulse"/> ACTIVE</div><span className="font-mono text-sm font-bold text-amber-400">{formatCountdown(timeLeft)}</span></div>
-                <button onClick={reducePetTime} className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-amber-400 hover:text-amber-200 transition-colors" title="Reduce time by 1 minute"><Minus size={14} /></button>
-                <button onClick={resetPet} className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-400 hover:text-white transition-colors" title="Reset Pet Status"><RotateCcw size={14} /></button>
+                <div className="flex-1 bg-amber-500/10 border border-amber-500/50 rounded py-2 px-3 flex items-center justify-between">
+                   <div className="flex items-center gap-2 text-amber-500 text-xs font-bold">
+                      <Zap size={14} className="fill-amber-500 animate-pulse"/> ACTIVE
+                   </div>
+                   <span className="font-mono text-sm font-bold text-amber-400">
+                      {formatCountdown(timeLeft)}
+                   </span>
+                </div>
+                <button 
+                   onClick={reducePetTime}
+                   className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-amber-400 hover:text-amber-200 transition-colors"
+                   title="Reduce time by 1 minute"
+                >
+                   <Minus size={14} />
+                </button>
+                <button 
+                   onClick={resetPet}
+                   className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-400 hover:text-white transition-colors"
+                   title="Reset Pet Status"
+                >
+                   <RotateCcw size={14} />
+                </button>
             </div>
          )}
+
          {isExhausted && (
             <div className="flex items-center gap-2">
-                <div className="flex-1 bg-slate-800/50 border border-slate-700 rounded py-2 px-3 flex items-center justify-center gap-2 text-slate-500 text-xs font-bold"><Ban size={14} /> PET EXHAUSTED</div>
-                <button onClick={resetPet} className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-400 hover:text-white transition-colors" title="Reset Pet Status"><RotateCcw size={14} /></button>
+                <div className="flex-1 bg-slate-800/50 border border-slate-700 rounded py-2 px-3 flex items-center justify-center gap-2 text-slate-500 text-xs font-bold">
+                   <Ban size={14} /> PET EXHAUSTED
+                </div>
+                <button 
+                   onClick={resetPet}
+                   className="h-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-400 hover:text-white transition-colors"
+                   title="Reset Pet Status"
+                >
+                   <RotateCcw size={14} />
+                </button>
             </div>
          )}
       </div>
@@ -415,53 +664,115 @@ const RallyLeadCard = ({ lead, onUpdate, onDelete }) => {
   );
 };
 
+// --- Rally Group Card (Group View) ---
 const RallyGroupCard = ({ group, members, availableLeads, onAssign, onRemove, onActivatePet, onDelete, onUpdate }) => {
   const [isAdding, setIsAdding] = useState(false);
+
+  // Calculate March Time Range based on EFFECTIVE time
   const calculateMarchRange = () => {
-    const times = members.map(m => {
+    const times = members
+        .map(m => {
             const isActive = m.petExpiresAt && (m.petExpiresAt - Date.now() > 0);
             return getEffectiveMarchTime(m.marchTime, isActive);
-        }).filter(t => t > 0);
+        })
+        .filter(t => t > 0);
+    
     if (times.length === 0) return 'N/A';
+    
     const min = Math.min(...times);
     const max = Math.max(...times);
+    
     if (min === max) return `${min}s`;
     return `${min}s - ${max}s`;
   };
+
   const marchRange = calculateMarchRange();
+
   return (
     <div className="bg-slate-900/50 border border-slate-700 rounded-xl overflow-hidden flex flex-col shadow-lg">
+       {/* Group Header */}
        <div className="p-3 bg-slate-900 border-b border-slate-700 flex justify-between items-start">
           <div className="flex flex-col gap-1">
-             <div className="flex items-center gap-2"><h3 className="font-bold text-sm text-white">{group.name}</h3><span className="text-[10px] text-slate-400 font-mono bg-slate-800 px-2 py-0.5 rounded border border-slate-700">{members.length} Leads</span></div>
-             <div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">March Range:</span><span className="text-xs font-bold font-mono text-indigo-300 bg-indigo-900/30 px-1.5 py-0.5 rounded border border-indigo-500/30">{marchRange}</span></div>
+             <div className="flex items-center gap-2">
+                <h3 className="font-bold text-sm text-white">{group.name}</h3>
+                <span className="text-[10px] text-slate-400 font-mono bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                    {members.length} Leads
+                </span>
+             </div>
+             {/* March Range Display */}
+             <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">March Range:</span>
+                <span className="text-xs font-bold font-mono text-indigo-300 bg-indigo-900/30 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                    {marchRange}
+                </span>
+             </div>
           </div>
-          <button onClick={() => onDelete(group.id)} className="text-slate-600 hover:text-red-500 transition-colors p-1" title="Delete Group"><Trash2 size={16} /></button>
+          <button 
+             onClick={() => onDelete(group.id)}
+             className="text-slate-600 hover:text-red-500 transition-colors p-1"
+             title="Delete Group"
+          >
+             <Trash2 size={16} />
+          </button>
        </div>
+       
        <div className="p-2 flex flex-col gap-2 min-h-[100px]">
-          {members.length === 0 && !isAdding && ( <div className="flex-1 flex flex-col items-center justify-center text-slate-600 text-xs italic py-4">No leads assigned</div> )}
+          {members.length === 0 && !isAdding && (
+             <div className="flex-1 flex flex-col items-center justify-center text-slate-600 text-xs italic py-4">
+                No leads assigned
+             </div>
+          )}
+
           {members.map(lead => {
              const isActive = lead.petExpiresAt && (lead.petExpiresAt - Date.now() > 0);
              const effectiveTime = getEffectiveMarchTime(lead.marchTime, isActive);
              const isEstimated = isActive && isCustomCalculation(lead.marchTime);
+             
              return (
              <div key={lead.id} className="bg-slate-800 p-2.5 rounded-lg flex items-center justify-between group relative border border-white/5 hover:border-indigo-500/30 transition-colors">
                 <div className="flex flex-col w-full">
                    <div className="flex justify-between items-center mb-1.5">
                        <span className="text-sm font-bold text-white truncate max-w-[120px]">{lead.name || "Unknown"}</span>
-                       <button onClick={() => onRemove(lead.id)} className="text-slate-600 hover:text-red-400 p-1" title="Remove from group"><X size={14} /></button>
+                       <button 
+                           onClick={() => onRemove(lead.id)}
+                           className="text-slate-600 hover:text-red-400 p-1"
+                           title="Remove from group"
+                        >
+                           <X size={14} />
+                        </button>
                    </div>
+                   
                    <div className="flex items-center justify-between mt-1">
-                      <span className={`text-sm font-black text-white shadow-md px-2 py-1 rounded flex items-center gap-1.5 border ${isActive ? 'bg-green-600 border-green-400/50' : 'bg-blue-600 border-blue-400/50'}`} title={isEstimated ? "Calculated via formula" : ""}>
+                      {/* Highlighted March Time */}
+                      <span 
+                        className={`text-sm font-black text-white shadow-md px-2 py-1 rounded flex items-center gap-1.5 border ${isActive ? 'bg-green-600 border-green-400/50' : 'bg-blue-600 border-blue-400/50'}`}
+                        title={isEstimated ? "Calculated via formula" : ""}
+                      >
                          <Timer size={14} /> {effectiveTime}s {isEstimated && <span className="text-[9px] align-top">*</span>}
                       </span>
+                      
+                      {/* Pet Status / Activation */}
                       <div className="flex-shrink-0 flex items-center gap-1">
                         {!lead.petExpiresAt ? (
-                            <button onClick={() => onActivatePet(lead.id)} className="flex items-center gap-1 text-[10px] bg-slate-700 hover:bg-indigo-600 text-white px-2 py-1 rounded border border-slate-600 transition-colors font-bold uppercase tracking-wide" title="Activate Pet (2h)"><Zap size={10} /> ACTIVATE</button>
+                            <button 
+                                onClick={() => onActivatePet(lead.id)}
+                                className="flex items-center gap-1 text-[10px] bg-slate-700 hover:bg-indigo-600 text-white px-2 py-1 rounded border border-slate-600 transition-colors font-bold uppercase tracking-wide"
+                                title="Activate Pet (2h)"
+                            >
+                                <Zap size={10} /> ACTIVATE
+                            </button>
                         ) : (
                             <>
                                 <PetStatusBadge expiresAt={lead.petExpiresAt} />
-                                {isActive && ( <button onClick={() => onUpdate(lead.id, { petExpiresAt: lead.petExpiresAt - 60000 })} className="p-1 bg-slate-700 hover:bg-slate-600 text-amber-400 rounded border border-slate-600" title="-1 Minute"><Minus size={10} /></button> )}
+                                {isActive && (
+                                    <button 
+                                       onClick={() => onUpdate(lead.id, { petExpiresAt: lead.petExpiresAt - 60000 })}
+                                       className="p-1 bg-slate-700 hover:bg-slate-600 text-amber-400 rounded border border-slate-600"
+                                       title="-1 Minute"
+                                    >
+                                       <Minus size={10} />
+                                    </button>
+                                )}
                             </>
                         )}
                       </div>
@@ -469,17 +780,34 @@ const RallyGroupCard = ({ group, members, availableLeads, onAssign, onRemove, on
                 </div>
              </div>
           )})}
+
+          {/* Add Member UI */}
           {!isAdding ? (
-             <button onClick={() => setIsAdding(true)} className="mt-2 w-full py-2.5 border border-dashed border-slate-700 text-slate-500 hover:text-indigo-400 hover:border-indigo-500/50 hover:bg-indigo-900/10 rounded text-xs font-bold transition-all flex items-center justify-center gap-1"><Plus size={14} /> ASSIGN LEAD</button>
+             <button 
+               onClick={() => setIsAdding(true)}
+               className="mt-2 w-full py-2.5 border border-dashed border-slate-700 text-slate-500 hover:text-indigo-400 hover:border-indigo-500/50 hover:bg-indigo-900/10 rounded text-xs font-bold transition-all flex items-center justify-center gap-1"
+             >
+                <Plus size={14} /> ASSIGN LEAD
+             </button>
           ) : (
              <div className="mt-2 p-2 bg-black/60 backdrop-blur rounded border border-slate-700 animate-in fade-in zoom-in-95 duration-200">
-                <div className="flex justify-between items-center mb-2 px-1"><span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Select Lead to Add</span><button onClick={() => setIsAdding(false)}><X size={14} className="text-slate-400 hover:text-white"/></button></div>
+                <div className="flex justify-between items-center mb-2 px-1">
+                   <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Select Lead to Add</span>
+                   <button onClick={() => setIsAdding(false)}><X size={14} className="text-slate-400 hover:text-white"/></button>
+                </div>
                 <div className="flex flex-col gap-1 max-h-[150px] overflow-y-auto custom-scrollbar">
                    {availableLeads.length > 0 ? availableLeads.map(lead => (
-                      <button key={lead.id} onClick={() => { onAssign(lead.id, group.id); setIsAdding(false); }} className="text-left text-xs text-slate-300 hover:bg-indigo-600 hover:text-white p-2 rounded transition-colors flex justify-between items-center group">
-                         <span className="font-bold">{lead.name || "Unnamed"}</span><span className="font-mono opacity-70 group-hover:opacity-100">{lead.marchTime || 0}s</span>
+                      <button 
+                         key={lead.id}
+                         onClick={() => { onAssign(lead.id, group.id); setIsAdding(false); }}
+                         className="text-left text-xs text-slate-300 hover:bg-indigo-600 hover:text-white p-2 rounded transition-colors flex justify-between items-center group"
+                      >
+                         <span className="font-bold">{lead.name || "Unnamed"}</span>
+                         <span className="font-mono opacity-70 group-hover:opacity-100">{lead.marchTime || 0}s</span>
                       </button>
-                   )) : ( <span className="text-[10px] text-slate-500 italic p-2 text-center">No unassigned leads available</span> )}
+                   )) : (
+                      <span className="text-[10px] text-slate-500 italic p-2 text-center">No unassigned leads available</span>
+                   )}
                 </div>
              </div>
           )}
@@ -493,151 +821,132 @@ const RallyGroupCard = ({ group, members, availableLeads, onAssign, onRemove, on
 
 const App = () => {
   // --- State ---
-  const [currentTab, setCurrentTab] = useState('calculator'); // 'calculator' | 'rallies' | 'grouping' | 'records'
-  const [recordsView, setRecordsView] = useState('current'); // 'current' | 'history'
+  const [currentTab, setCurrentTab] = useState('calculator'); 
+  const [recordsView, setRecordsView] = useState('current'); 
   
-  // Hydration state
-  const [isHydrated, setIsHydrated] = useState(false);
+  // 1. Sync Hook Integration
+  const { battleState, updateBattleState, loading } = useBattleSync();
 
-  // Time Data (Recoverable)
-  const [ourTime, setOurTime] = useState(() => getSavedState('ourTime', { h: 0, m: 0, s: 0 }));
-  const [enemyTime, setEnemyTime] = useState(() => getSavedState('enemyTime', { h: 0, m: 0, s: 0 }));
-  const [remainingTime, setRemainingTime] = useState(() => getSavedState('remainingTime', { h: 5, m: 0, s: 0 }));
+  // 2. Smart Setter Factory
+  // Creates a setter that updates local state AND sends updates to Firebase
+  const createSmartSetter = (key, localSetter) => (value) => {
+      localSetter(prev => {
+          const resolvedValue = typeof value === 'function' ? value(prev) : value;
+          // Fire-and-forget update to Firestore (merges with existing doc)
+          updateBattleState({ [key]: resolvedValue });
+          return resolvedValue;
+      });
+  };
+
+  // 3. State Initialization
+  // We define a local state variable (e.g., _ourTime) and a smart setter (setOurTime).
+  // The rest of the app uses 'ourTime' and 'setOurTime', so no UI changes are needed.
+
+  const [ourTimeState, _setOurTime] = useState({ h: 0, m: 0, s: 0 });
+  const ourTime = ourTimeState;
+  const setOurTime = createSmartSetter('ourTime', _setOurTime);
+
+  const [enemyTimeState, _setEnemyTime] = useState({ h: 0, m: 0, s: 0 });
+  const enemyTime = enemyTimeState;
+  const setEnemyTime = createSmartSetter('enemyTime', _setEnemyTime);
+
+  const [remainingTimeState, _setRemainingTime] = useState({ h: 5, m: 0, s: 0 });
+  const remainingTime = remainingTimeState;
+  const setRemainingTime = createSmartSetter('remainingTime', _setRemainingTime);
   
-  // Live Tracker State (Recoverable)
-  const [isTimerRunning, setIsTimerRunning] = useState(false); // Default false on reload to prevent confusion
-  const [castleOwner, setCastleOwner] = useState(() => getSavedState('castleOwner', 'neutral'));
+  const [castleOwnerState, _setCastleOwner] = useState('neutral');
+  const castleOwner = castleOwnerState;
+  const setCastleOwner = createSmartSetter('castleOwner', _setCastleOwner);
   
-  // Real-Time States
-  const [battleStartTime, setBattleStartTime] = useState(() => getSavedState('battleStartTime', null));
-  const [lastTick, setLastTick] = useState(() => getSavedState('lastTick', 0));
+  const [battleStartTimeState, _setBattleStartTime] = useState(null);
+  const battleStartTime = battleStartTimeState;
+  const setBattleStartTime = createSmartSetter('battleStartTime', _setBattleStartTime);
+
+  const [lastTickState, _setLastTick] = useState(0);
+  const lastTick = lastTickState;
+  const setLastTick = createSmartSetter('lastTick', _setLastTick);
+
+  const [rallyLeadsState, _setRallyLeads] = useState([]); 
+  const rallyLeads = rallyLeadsState;
+  const setRallyLeads = createSmartSetter('rallyLeads', _setRallyLeads);
   
-  // Auto-Start Feature State
-  const [autoStartEnabled, setAutoStartEnabled] = useState(false);
-  const [autoStartTime, setAutoStartTime] = useState("12:00:00");
-  const [currentUtc, setCurrentUtc] = useState("");
-
-  // Screen Capture & Auto-Tracking State
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null); // Used for image processing
-  const [isScreenShared, setIsScreenShared] = useState(false);
-  
-  // Auto-Tracker Config
-  const [autoTrackEnabled, setAutoTrackEnabled] = useState(false);
-  const [targetPixel, setTargetPixel] = useState(null); // { x: 0, y: 0 } (percentages)
-  
-  const [scanSize, setScanSize] = useState(40); // Size of the square box in pixels
-
-  // Stores the Uint8ClampedArray (pixel data) for the "Reference" images
-  const usPatternRef = useRef(null);
-  const enemyPatternRef = useRef(null);
-
-  // State to just track if we have captured them (for UI feedback)
-  const [hasUsPattern, setHasUsPattern] = useState(false);
-  const [hasEnemyPattern, setHasEnemyPattern] = useState(false);
-
-  // User defined triggers
-  const [colorTolerance, setColorTolerance] = useState(30); // Difference tolerance
-
-  // Debug display state
-  const [debugDiff, setDebugDiff] = useState({ us: null, enemy: null });
-  const [debugMatch, setDebugMatch] = useState('none'); // 'us', 'enemy', 'none'
-
-  const [results, setResults] = useState(null);
-
-  // Rally Leads State (Recoverable)
-  const [rallyLeads, setRallyLeads] = useState(() => getSavedState('rallyLeads', [])); 
-  
-  // Groups Definition (Recoverable)
-  const [groups, setGroups] = useState(() => getSavedState('groups', [
+  const [groupsState, _setGroups] = useState([
      { id: 'u1', side: 'us', name: 'Group 1' },
      { id: 'u2', side: 'us', name: 'Group 2' },
      { id: 'u3', side: 'us', name: 'Group 3' },
      { id: 'e1', side: 'enemy', name: 'Group 1' },
      { id: 'e2', side: 'enemy', name: 'Group 2' },
      { id: 'e3', side: 'enemy', name: 'Group 3' },
-  ]));
+  ]);
+  const groups = groupsState;
+  const setGroups = createSmartSetter('groups', _setGroups);
 
-  // Battle Logs (Recoverable)
-  const [battleLog, setBattleLog] = useState(() => getSavedState('battleLog', []));
+  const [battleLogState, _setBattleLog] = useState([]);
+  const battleLog = battleLogState;
+  const setBattleLog = createSmartSetter('battleLog', _setBattleLog);
+
+  // 4. Sync Effect (Read)
+  // When Firestore data arrives via the hook, update local state
+  useEffect(() => {
+    if (!loading && battleState) {
+        _setOurTime(battleState.ourTime);
+        _setEnemyTime(battleState.enemyTime);
+        _setRemainingTime(battleState.remainingTime);
+        _setCastleOwner(battleState.castleOwner);
+        _setBattleStartTime(battleState.battleStartTime);
+        _setLastTick(battleState.lastTick);
+        _setRallyLeads(battleState.rallyLeads || []);
+        _setGroups(battleState.groups || []);
+        _setBattleLog(battleState.battleLog || []);
+    }
+  }, [loading, battleState]);
+
+  // --- Local Only States (Not synced via useBattleSync) ---
+  const [isTimerRunning, setIsTimerRunning] = useState(false); // UI state only
+  const [autoStartEnabled, setAutoStartEnabled] = useState(false);
+  const [autoStartTime, setAutoStartTime] = useState("12:00:00");
+  const [currentUtc, setCurrentUtc] = useState("");
+
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null); 
+  const [isScreenShared, setIsScreenShared] = useState(false);
   
-  // Saved Battles History
-  const [savedBattles, setSavedBattles] = useState(() => getSavedState('savedBattles', []));
+  const [autoTrackEnabled, setAutoTrackEnabled] = useState(false);
+  const [targetPixel, setTargetPixel] = useState(null); 
+  const [scanSize, setScanSize] = useState(40);
+
+  const usPatternRef = useRef(null);
+  const enemyPatternRef = useRef(null);
+
+  const [hasUsPattern, setHasUsPattern] = useState(false);
+  const [hasEnemyPattern, setHasEnemyPattern] = useState(false);
+  const [colorTolerance, setColorTolerance] = useState(30); 
+  const [debugDiff, setDebugDiff] = useState({ us: null, enemy: null });
+  const [debugMatch, setDebugMatch] = useState('none'); 
+
+  const [results, setResults] = useState(null);
+
+  // History is kept local for now (or use separate collection later)
+  const [savedBattles, setSavedBattles] = useState(() => {
+    try {
+      const saved = localStorage.getItem('savedBattles');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  useEffect(() => localStorage.setItem('savedBattles', JSON.stringify(savedBattles)), [savedBattles]);
+
   const [battleName, setBattleName] = useState("");
-  
-  // Separate state for the selected battle in History view
   const [selectedBattle, setSelectedBattle] = useState(null);
+  const [isHydrated, setIsHydrated] = useState(true); // Handled by hook now
 
   const historyFileInputRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // --- FIRESTORE SYNC ---
-  const { data: firestoreData, saveData: saveToFirestore, loading: fsLoading, user } = useFirestore('gameState');
-
-  // Load from Firestore
-  useEffect(() => {
-    if (!fsLoading) {
-      if (firestoreData) {
-        // If firestoreData comes from a single document fetch (object), hydrate state directly
-        // The useFirestore hook we updated now returns an object for the single 'latest_session' document
-        const stateToLoad = firestoreData; 
-        
-        if (stateToLoad.ourTime) setOurTime(stateToLoad.ourTime);
-        if (stateToLoad.enemyTime) setEnemyTime(stateToLoad.enemyTime);
-        if (stateToLoad.remainingTime) setRemainingTime(stateToLoad.remainingTime);
-        if (stateToLoad.castleOwner) setCastleOwner(stateToLoad.castleOwner);
-        if (stateToLoad.rallyLeads) setRallyLeads(stateToLoad.rallyLeads);
-        if (stateToLoad.groups) setGroups(stateToLoad.groups);
-        if (stateToLoad.battleLog) setBattleLog(stateToLoad.battleLog);
-        if (stateToLoad.battleStartTime) setBattleStartTime(stateToLoad.battleStartTime);
-        if (stateToLoad.lastTick) setLastTick(stateToLoad.lastTick);
-        if (stateToLoad.savedBattles) setSavedBattles(stateToLoad.savedBattles);
-        console.log("State synced from Firestore");
-      }
-      setIsHydrated(true); // Mark as hydrated regardless of data existence (empty means fresh start)
-    }
-  }, [fsLoading, firestoreData]);
-
-  // Save to Firestore & LocalStorage
-  const stateRef = useRef({
-      ourTime, enemyTime, remainingTime, castleOwner, rallyLeads, groups, battleLog, battleStartTime, lastTick, savedBattles
-  });
-
-  useEffect(() => {
-      // Update Ref
-      stateRef.current = {
-          ourTime, enemyTime, remainingTime, castleOwner, rallyLeads, groups, battleLog, battleStartTime, lastTick, savedBattles
-      };
-      
-      // Persist to LocalStorage immediately
-      localStorage.setItem('ourTime', JSON.stringify(ourTime));
-      localStorage.setItem('enemyTime', JSON.stringify(enemyTime));
-      localStorage.setItem('remainingTime', JSON.stringify(remainingTime));
-      localStorage.setItem('castleOwner', JSON.stringify(castleOwner));
-      localStorage.setItem('rallyLeads', JSON.stringify(rallyLeads));
-      localStorage.setItem('groups', JSON.stringify(groups));
-      localStorage.setItem('battleLog', JSON.stringify(battleLog));
-      localStorage.setItem('battleStartTime', JSON.stringify(battleStartTime));
-      localStorage.setItem('lastTick', JSON.stringify(lastTick));
-      localStorage.setItem('savedBattles', JSON.stringify(savedBattles));
-  }, [ourTime, enemyTime, remainingTime, castleOwner, rallyLeads, groups, battleLog, battleStartTime, lastTick, savedBattles]);
-
-  // Periodic Save to Firestore (Debounced)
-  // Only save if hydrated to avoid overwriting remote data with empty local defaults
-  useEffect(() => {
-      if (!user || !isHydrated) return;
-      
-      const interval = setInterval(() => {
-          console.log("Auto-saving state to Firestore...");
-          saveToFirestore(stateRef.current);
-      }, 10000); // 10s auto-save
-      return () => clearInterval(interval);
-  }, [user, isHydrated, saveToFirestore]);
-
-
   // --- Logging Helper ---
+  // Memoize addLog with useCallback to prevent infinite loops in useEffect
   const addLog = useCallback((message, type = 'system', side = null) => {
       const now = new Date();
+      // Format: YYYY-MM-DD HH:MM:SS UTC
       const yyyy = now.getUTCFullYear();
       const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
       const dd = String(now.getUTCDate()).padStart(2, '0');
@@ -654,8 +963,9 @@ const App = () => {
           side
       };
       setBattleLog(prev => [entry, ...prev]);
-  }, []);
+  }, []); // Empty dependency array as it only uses setBattleLog which is stable
 
+  // Log Castle Owner Changes & Victory
   const prevOwnerRef = useRef(castleOwner);
   const prevStatusRef = useRef(null);
 
@@ -690,24 +1000,32 @@ const App = () => {
     addLog(`New ${side === 'us' ? 'Friendly' : 'Enemy'} Rally Lead added`, 'rally');
   };
 
+  // Updated updateRallyLead to handle pet activation logging
   const updateRallyLead = (id, updates) => {
+    // Check for logging triggers BEFORE updating state to have access to current name
     const lead = rallyLeads.find(l => l.id === id);
     if (lead) {
         if (updates.petExpiresAt && typeof updates.petExpiresAt === 'number') {
+            // Activation (check if future time)
             if (updates.petExpiresAt > Date.now()) {
                  addLog(`Pet activated for ${lead.name || 'Unnamed Lead'}`, 'pet', lead.side);
             }
-            updates.expirationLogged = false;
         }
+        // Log resets if explicitly set to null
         if (updates.petExpiresAt === null) {
              addLog(`Pet status reset for ${lead.name || 'Unnamed Lead'}`, 'pet', lead.side);
         }
+        
+        // Log march time changes
         if (updates.marchTime !== undefined && updates.marchTime != lead.marchTime) {
+             // Avoid logging if converting from string "48" to number 48 or vice versa creates noise, but != handles that.
+             // Also check if it's just initialization (0 -> 0)
              if (lead.marchTime != updates.marchTime) {
                  addLog(`March time updated for ${lead.name || 'Unnamed Lead'}: ${lead.marchTime || 0}s -> ${updates.marchTime}s`, 'rally');
              }
         }
     }
+
     setRallyLeads(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l));
   };
 
@@ -727,24 +1045,35 @@ const App = () => {
     addLog("Lead removed from group", 'group');
   };
 
+  // Add a new Group dynamically
   const addGroup = (side) => {
       const currentCount = groups.filter(g => g.side === side).length;
-      const newGroup = { id: `${side}-${Date.now()}`, side: side, name: `Group ${currentCount + 1}` };
+      const newGroup = {
+          id: `${side}-${Date.now()}`,
+          side: side,
+          name: `Group ${currentCount + 1}`
+      };
       setGroups([...groups, newGroup]);
       addLog(`New ${side === 'us' ? 'Friendly' : 'Enemy'} Group created`, 'group');
   };
 
+  // Delete Group and unassign leads
   const deleteGroup = (groupId) => {
       setGroups(groups.filter(g => g.id !== groupId));
-      setRallyLeads(rallyLeads.map(lead => lead.groupId === groupId ? { ...lead, groupId: null } : lead));
+      // Unassign leads in that group
+      setRallyLeads(rallyLeads.map(lead => 
+          lead.groupId === groupId ? { ...lead, groupId: null } : lead
+      ));
       addLog("Group deleted", 'group');
   };
 
+  // Activate pet from group view (same 2h logic)
   const handleActivatePetFromGroup = (leadId) => {
       const twoHoursMs = 2 * 60 * 60 * 1000;
       updateRallyLead(leadId, { petExpiresAt: Date.now() + twoHoursMs });
   };
   
+  // RESET BATTLE FUNCTION
   const resetBattle = () => {
     if (window.confirm("⚠️ Are you sure you want to RESET the battle?\n\nThis will:\n• Stop the timer\n• Reset scores to 0\n• Reset battle time to 5h\n• Reset castle to Neutral\n• Reset ALL Pet Cooldowns\n• Clear current logs\n\nThis cannot be undone!")) {
           setIsTimerRunning(false);
@@ -758,28 +1087,22 @@ const App = () => {
           setResults(null);
           setAutoStartEnabled(false);
           
+          // Reset all pets
           setRallyLeads(prev => prev.map(lead => ({ ...lead, petExpiresAt: null })));
-          
+
+          // Clear from storage immediately
           localStorage.removeItem('battleStartTime');
           localStorage.removeItem('lastTick');
+          localStorage.removeItem('ourTime');
+          localStorage.removeItem('enemyTime');
+          localStorage.removeItem('remainingTime');
+          localStorage.removeItem('castleOwner');
+          localStorage.removeItem('battleLog');
           
-          // Re-initialize log with just the reset message
-          const now = new Date();
-          const yyyy = now.getUTCFullYear();
-          const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-          const dd = String(now.getUTCDate()).padStart(2, '0');
-          const hh = String(now.getUTCHours()).padStart(2, '0');
-          const min = String(now.getUTCMinutes()).padStart(2, '0');
-          const ss = String(now.getUTCSeconds()).padStart(2, '0');
-          const timestamp = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss} UTC`;
+          // We don't remove rallyLeads from storage here, just update state, 
+          // effectively keeping the leads but clearing pets.
           
-          setBattleLog([{
-              id: Date.now(),
-              timestamp: timestamp,
-              message: "Battle Reset - New Session Started",
-              type: 'system',
-              side: null
-          }]);
+          addLog("Battle Reset - New Session Started", 'system');
     }
   };
 
@@ -809,6 +1132,7 @@ const App = () => {
     }
   };
 
+  // Export Specific Battle (History Tab)
   const exportBattle = (battle) => {
       if (!battle) return;
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(battle, null, 2));
@@ -820,6 +1144,7 @@ const App = () => {
       downloadAnchorNode.remove();
   };
 
+  // Export Current Session (Logs Tab)
   const exportCurrentSession = () => {
       const sessionBattle = {
           id: Date.now(),
@@ -835,12 +1160,20 @@ const App = () => {
 
   const clearAllData = () => {
       if (window.confirm("Are you sure you want to clear CURRENT session data? This will not delete saved history.")) {
-          resetBattle();
-          setSavedBattles([]);
+          localStorage.removeItem('ourTime');
+          localStorage.removeItem('enemyTime');
+          localStorage.removeItem('remainingTime');
+          localStorage.removeItem('castleOwner');
+          localStorage.removeItem('rallyLeads');
+          localStorage.removeItem('groups');
+          localStorage.removeItem('battleLog');
+          localStorage.removeItem('battleStartTime');
+          localStorage.removeItem('lastTick');
           window.location.reload();
       }
   };
 
+  // Import History
   const handleHistoryImportClick = () => {
       if (historyFileInputRef.current) historyFileInputRef.current.click();
   };
@@ -853,7 +1186,9 @@ const App = () => {
       reader.onload = (evt) => {
           try {
               const imported = JSON.parse(evt.target.result);
+              // Check if single battle object
               if (imported && imported.id && imported.logs && imported.finalOurTime) {
+                  // Check for duplicates
                   if (savedBattles.some(b => b.id === imported.id)) {
                       alert("This battle is already in your history.");
                       return;
@@ -871,9 +1206,10 @@ const App = () => {
           }
       };
       reader.readAsText(file);
-      e.target.value = null; 
+      e.target.value = null; // Reset
   };
 
+  // CSV Import
   const handleImportClick = () => {
     if (fileInputRef.current) fileInputRef.current.click();
   };
@@ -888,23 +1224,31 @@ const App = () => {
       processCSV(text);
     };
     reader.readAsText(file);
-    e.target.value = null; 
+    e.target.value = null; // Reset
   };
 
   const processCSV = (text) => {
     const lines = text.split(/\r?\n/);
     const newLeads = [];
+    
+    // Skip header row if it looks like a header (optional, simple check for 'side' or 'name')
     const startIdx = lines[0].toLowerCase().includes('side') ? 1 : 0;
 
     for (let i = startIdx; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
+        
+        // Only extract side and name
         const [rawSide, rawName] = line.split(',');
         if (!rawSide) continue;
-        let side = 'us'; 
+
+        let side = 'us'; // default
         const s = rawSide.toLowerCase().trim();
         if (s === 'enemy' || s === 'them') side = 'enemy';
+        
         const name = rawName ? rawName.trim() : `Lead ${i}`;
+        const marchTime = 0; // Default to 0 as requested
+
         newLeads.push({
             id: Date.now() + i,
             side,
@@ -920,6 +1264,7 @@ const App = () => {
   };
 
   const downloadTemplate = () => {
+      // Updated template content: only side and name
       const csvContent = "data:text/csv;charset=utf-8,side,name\nus,PlayerName\nenemy,EnemyName";
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
@@ -932,14 +1277,20 @@ const App = () => {
 
 
   // --- Logic Effects ---
+
+  // 1. Live Timer Ticker & Auto-Start Logic (Improved for Robustness)
   useEffect(() => {
     let interval = setInterval(() => {
+      // 1a. Auto-Start Check & UTC Clock
       const now = Date.now();
       const nowDate = new Date();
       const timeString = nowDate.toISOString().split('T')[1].split('.')[0];
       setCurrentUtc(timeString);
+
       if (autoStartEnabled && !isTimerRunning) {
+        // Handle potentially missing seconds in input (e.g., "12:00" vs "12:00:00")
         const target = autoStartTime.length === 5 ? autoStartTime + ":00" : autoStartTime;
+        
         if (timeString === target) {
           setIsTimerRunning(true);
           setAutoStartEnabled(false);
@@ -948,84 +1299,134 @@ const App = () => {
           addLog("Battle Auto-Started", 'system');
         }
       }
+
+      // Handle Main Battle Timer logic
       if (isTimerRunning) {
+         // Logic 1: Battle Countdown (fixed duration from start time)
          if (battleStartTime) {
              const elapsedSeconds = Math.floor((now - battleStartTime) / 1000);
-             const totalSeconds = 5 * 60 * 60; 
+             const totalSeconds = 5 * 60 * 60; // 5 hours
              let remaining = totalSeconds - elapsedSeconds;
              if (remaining < 0) remaining = 0;
              setRemainingTime(fromSeconds(remaining));
+             
              if (remaining === 0) {
-                 setIsTimerRunning(false);
+                 setIsTimerRunning(false); // Battle Over
                  addLog("Battle Ended (Time Expired)", 'system');
              }
          }
+
+         // Logic 2: Occupation Accumulation (Delta based to handle crashes)
          if (lastTick > 0) {
              const delta = Math.floor((now - lastTick) / 1000);
+             
+             // Only process meaningful deltas (e.g. > 0s)
              if (delta > 0) {
                  if (castleOwner === 'us') {
                     setOurTime(prev => fromSeconds(toSeconds(prev) + delta));
                  } else if (castleOwner === 'enemy') {
                     setEnemyTime(prev => fromSeconds(toSeconds(prev) + delta));
                  }
+                 // Update lastTick to now so we don't double count
                  setLastTick(now);
              }
          } else {
+             // First tick or after reset
              setLastTick(now);
          }
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [isTimerRunning, castleOwner, autoStartEnabled, autoStartTime, battleStartTime, lastTick]);
+  }, [isTimerRunning, castleOwner, autoStartEnabled, autoStartTime, battleStartTime, lastTick, addLog]);
 
+  // 2. Calculation Logic
   useEffect(() => {
     const ourSec = toSeconds(ourTime);
     const enemySec = toSeconds(enemyTime);
     const leftSec = toSeconds(remainingTime);
+
     const gap = Math.abs(ourSec - enemySec);
     const leader = ourSec > enemySec ? 'us' : (enemySec > ourSec ? 'enemy' : 'tie');
+    
     const maxPossibleOurScore = ourSec + leftSec;
     const isWinImpossible = maxPossibleOurScore <= enemySec;
+    
     const maxPossibleEnemyScore = enemySec + leftSec;
     const isLossImpossible = maxPossibleEnemyScore <= ourSec;
+
     let secondsNeededToWin = (enemySec - ourSec + leftSec) / 2 + 1;
+    
     let status = 'contested';
     if (isWinImpossible) status = 'lost';
     if (isLossImpossible) status = 'won';
+    
     let secondsUntilPointOfNoReturn = (ourSec + leftSec - enemySec) / 2;
-    setResults({ ourSec, enemySec, leftSec, gap, leader, status, secondsNeededToWin, secondsUntilPointOfNoReturn, maxPossibleOurScore });
+
+    setResults({
+      ourSec,
+      enemySec,
+      leftSec,
+      gap,
+      leader,
+      status,
+      secondsNeededToWin,
+      secondsUntilPointOfNoReturn,
+      maxPossibleOurScore
+    });
+
   }, [ourTime, enemyTime, remainingTime]);
 
+  // 3. Auto-Tracking Loop (Area Pattern Match)
   useEffect(() => {
     let animationFrameId;
     let frameCount = 0;
+
     const checkPattern = () => {
       if (isScreenShared && videoRef.current && canvasRef.current && targetPixel) {
         const video = videoRef.current;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        // Ensure canvas matches video size
         if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
         }
+
+        // Draw current frame
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Calculate Box Coordinates
         const centerX = Math.floor(targetPixel.x * canvas.width);
         const centerY = Math.floor(targetPixel.y * canvas.height);
+        
+        // Clamp to edges
         const startX = Math.max(0, centerX - Math.floor(scanSize / 2));
         const startY = Math.max(0, centerY - Math.floor(scanSize / 2));
+        // Use scanSize, but don't overflow canvas
         const w = Math.min(scanSize, canvas.width - startX);
         const h = Math.min(scanSize, canvas.height - startY);
+
+        // Get Pixel Data for the Region
         const currentImageData = ctx.getImageData(startX, startY, w, h).data;
+
+        // Check triggers always for debug info
         if (hasUsPattern && hasEnemyPattern) {
             const distUs = calculatePatternDiff(currentImageData, usPatternRef.current);
             const distEnemy = calculatePatternDiff(currentImageData, enemyPatternRef.current);
+
+            // Determine what the logic WOULD select
             let currentMatch = 'none';
             if (distUs < colorTolerance) currentMatch = 'us';
             else if (distEnemy < colorTolerance) currentMatch = 'enemy';
+
+            // Update Debug info occasionally (every ~5 frames)
             if (frameCount % 5 === 0) {
               setDebugDiff({ us: Math.round(distUs), enemy: Math.round(distEnemy) });
               setDebugMatch(currentMatch);
             }
+
+            // Only act if enabled
             if (autoTrackEnabled) {
               if (currentMatch === 'us') setCastleOwner('us');
               else if (currentMatch === 'enemy') setCastleOwner('enemy');
@@ -1036,12 +1437,15 @@ const App = () => {
       }
       animationFrameId = requestAnimationFrame(checkPattern);
     };
+
     if (isScreenShared) {
       checkPattern();
     }
+
     return () => cancelAnimationFrame(animationFrameId);
   }, [isScreenShared, targetPixel, autoTrackEnabled, hasUsPattern, hasEnemyPattern, colorTolerance, scanSize]);
 
+  // 4. Pet Expiration Check Logic
   useEffect(() => {
     const interval = setInterval(() => {
         const now = Date.now();
@@ -1060,6 +1464,7 @@ const App = () => {
     }, 1000);
     return () => clearInterval(interval);
   }, [addLog]);
+
 
   // --- Screen Capture Handlers ---
 
@@ -1121,7 +1526,15 @@ const App = () => {
      }
   };
 
-  // ... (Rest of UI) ...
+  // --- UI Helpers ---
+
+  const getStatusColor = () => {
+    if (!results) return 'bg-slate-800';
+    if (results.status === 'won') return 'bg-green-900 border-green-500';
+    if (results.status === 'lost') return 'bg-red-900 border-red-500';
+    return 'bg-slate-800 border-slate-600';
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 flex flex-col items-center">
       <div className="max-w-4xl w-full space-y-6">
@@ -1134,12 +1547,13 @@ const App = () => {
            <button onClick={() => setCurrentTab('records')} className={`flex-1 py-3 px-2 rounded-md font-bold text-[10px] md:text-sm flex items-center justify-center gap-1 md:gap-2 transition-all min-w-[80px] ${currentTab === 'records' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><BookOpen size={16} /> RECORDS</button>
         </div>
 
-        {/* ... (Calculator, Rally Manager, Grouping, Records content here) ... */}
-        {/* For brevity, using ... but the full content is structured exactly as in the previous valid state */}
+        {/* =======================
+            CALCULATOR TAB 
+           ======================= */}
         {currentTab === 'calculator' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-left-4 duration-300">
-             {/* Header */}
-             <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+            {/* Header */}
+            <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
               <div>
                 <h1 className="text-3xl font-black tracking-tighter uppercase text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-500">
                   War Calculator
